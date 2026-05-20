@@ -4,6 +4,7 @@ import { Calendar, Printer, MessageSquare, AlertCircle, ArrowRight, UserCheck, P
 import type { User, Shift, Printer as PrinterType, Announcement } from '../types';
 import { Card } from '../components/Card';
 import { getShifts, getPrinterStatus, getAnnouncements, addAnnouncement, deleteAnnouncement } from '../services/api';
+import { getLocalDateString } from '../services/storage';
 
 interface DashboardProps {
   user: User;
@@ -58,7 +59,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate }) => {
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         
         // 並行してデータを取得
         const [allShifts, allPrinters, allAnns] = await Promise.all([

@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, UserPlus, UserMinus, EyeOff, Eye, Info } fro
 import type { User, Shift as ShiftType } from '../types';
 import { Card } from '../components/Card';
 import { getShifts, joinShift, leaveShift, deleteShiftFrame, restoreShiftFrame } from '../services/api';
+import { getLocalDateString } from '../services/storage';
 
 interface ShiftProps {
   user: User;
@@ -23,7 +24,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
     loadShifts();
     
     // 今日を初期選択日とする
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     setSelectedDate(todayStr);
   }, []);
 
@@ -63,7 +64,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
       days.push({
         date: prevDate,
         isCurrentMonth: false,
-        dateString: prevDate.toISOString().split('T')[0],
+        dateString: getLocalDateString(prevDate),
       });
     }
 
@@ -86,7 +87,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
       days.push({
         date: nextDate,
         isCurrentMonth: false,
-        dateString: nextDate.toISOString().split('T')[0],
+        dateString: getLocalDateString(nextDate),
       });
     }
 
@@ -202,7 +203,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
             const isSelected = selectedDate === day.dateString;
             const dayNum = day.date.getDate();
             const dayOfWeek = day.date.getDay();
-            const isToday = new Date().toISOString().split('T')[0] === day.dateString;
+            const isToday = getLocalDateString() === day.dateString;
             const isHoliday = dayOfWeek === 0 || dayOfWeek === 6;
             
             // シフト状態の割り出し

@@ -8,6 +8,16 @@ const KEYS = {
 };
 
 /**
+ * タイムゾーン（ローカル時間）を考慮した YYYY-MM-DD 形式の日付文字列を安全に取得する
+ */
+export const getLocalDateString = (date: Date = new Date()): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+/**
  * ログインユーザー情報を保存する
  */
 export const saveCurrentUser = (user: User): void => {
@@ -88,7 +98,7 @@ function generateMockShifts(): Shift[] {
     // 平日のみ (月曜=1 〜 金曜=5)
     const dayOfWeek = d.getDay();
     if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = getLocalDateString(d);
       
       // テスト用に、一部の日付だけにメンバーを配置
       let memberNames: string[] = [];

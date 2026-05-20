@@ -1,6 +1,6 @@
 // src/services/api.ts
 import type { Printer, Shift, Announcement } from '../types';
-import { getLocalShifts, saveLocalShifts, getGasApiUrl } from './storage';
+import { getLocalShifts, saveLocalShifts, getGasApiUrl, getLocalDateString } from './storage';
 
 // 既存の GAS 3Dプリンター管理と同一のプリンターリスト
 const DEFAULT_PRINTERS = [
@@ -458,7 +458,7 @@ function getLocalAnnouncements(): Announcement[] {
     }
   }
   
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const initialAnnouncements: Announcement[] = [
     {
       id: 'ann_1',
@@ -521,7 +521,7 @@ export const addAnnouncement = async (title: string, content: string, important:
           id: `ann_${new Date().getTime()}`,
           title,
           content,
-          date: new Date().toISOString().split('T')[0],
+          date: getLocalDateString(),
           important
         };
         announcements.unshift(newAnn); // 先頭に追加
