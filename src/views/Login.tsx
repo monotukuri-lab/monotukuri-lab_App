@@ -18,11 +18,10 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState('');
 
   const departments = [
-    '機械工学科',
+    '建設システム工学科',
     '電気情報工学科',
+    '機械工学科',
     '電子制御工学科',
-    '制御情報工学科',
-    '地域社会システム学科',
     '電気電子システム工学コース',
     '機械制御システム工学コース',
     '建設工学コース'
