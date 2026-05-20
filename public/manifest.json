@@ -1,0 +1,16 @@
+{
+  "short_name": "ものつくり",
+  "name": "ものつくりラボ ポータル",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#f8f9fa",
+  "theme_color": "#1a73e8",
+  "display": "standalone",
+  "orientation": "portrait"
+}

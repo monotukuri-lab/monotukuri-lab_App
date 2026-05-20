@@ -1,0 +1,62 @@
+# GitHub Pages デプロイ用 ワークフロー
+name: Deploy to GitHub Pages
+
+on:
+  # main ブランチへのプッシュ時に自動的に実行
+  push:
+    branches:
+      - main
+  # 手動実行も可能にする
+  workflow_dispatch:
+
+# 必要な権限を設定
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時実行の制御：古い実行をキャンセルし、デプロイの競合を防ぐ
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      # 1. リポジトリのソースコードを取得
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Node.js 環境のセットアップ
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # 3. 依存関係のインストール（package-lock.json に基づくクリーンインストール）
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. プロダクションビルドの実行
+      - name: Build
+        run: npm run build
+
+      # 5. GitHub Pages 向けの基本設定（パス自動調整用など）
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      # 6. ビルド生成物（distディレクトリ）をPagesアーティファクトとしてアップロード
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+      # 7. GitHub Pages へのデプロイ実行
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
