@@ -602,6 +602,50 @@ export const saveIrregularPeriodApi = async (period: IrregularPeriod): Promise<I
     periods.push(period);
   }
   saveIrregularPeriods(periods);
+
+  // もし追加・更新された期間が「休館 (closed)」の場合、
+  // すでに対象期間内に登録されている既存のシフトを削除（メンバークリア ＆ isDeleted: true）する。
+  if (period.status === 'closed' || !period.status) {
+    // 1. ローカル側のシフトの削除
+    const shifts = getLocalShifts();
+    const updatedShifts = shifts.map(s => {
+      if (s.date >= period.startDate && s.date <= period.endDate) {
+        return {
+          ...s,
+          memberNames: [],
+          isDeleted: true
+        };
+      }
+      return s;
+    });
+    saveLocalShifts(updatedShifts);
+
+    // 2. GAS側への削除API送信 (GAS URLがある場合のみ)
+    const gasUrl = getGasApiUrl();
+    if (gasUrl) {
+      const start = new Date(period.startDate);
+      const end = new Date(period.endDate);
+      const datesToDelete: string[] = [];
+      const tempDate = new Date(start);
+      while (tempDate <= end) {
+        datesToDelete.push(getLocalDateString(tempDate));
+        tempDate.setDate(tempDate.getDate() + 1);
+      }
+
+      try {
+        await Promise.all(datesToDelete.map(async (d) => {
+          const query = new URLSearchParams({
+            action: 'deleteShiftFrame',
+            date: d
+          });
+          await fetch(`${gasUrl}?${query.toString()}`);
+        }));
+      } catch (err) {
+        console.error('GAS 期間内シフト削除失敗:', err);
+      }
+    }
+  }
+
   return periods;
 };
 
@@ -688,7 +732,7 @@ export const autoGenerateShifts = async (): Promise<Shift[]> => {
       
       // テスト期間や祝日のイレギュラー期間に含まれるか判定
       const activeIrregular = irregulars.find(p => dateStr >= p.startDate && dateStr <= p.endDate);
-      const isIrregular = !!activeIrregular;
+      const isClosed = activeIrregular ? (activeIrregular.status === 'closed' || !activeIrregular.status) : false;
 
       // 既存のシフトデータがあるか検索
       let existingShiftIndex = updatedShifts.findIndex(s => s.date === dateStr);
@@ -701,7 +745,8 @@ export const autoGenerateShifts = async (): Promise<Shift[]> => {
 
       // 手動でメンバー登録されている（memberNamesの長さ > 0）場合は保護して変更しない
       // ※ただし、自動生成で割り当てられただけの空枠（isDeletedでなく、既存メンバーもいない）や、新規枠は上書き対象とする
-      if (existingShift && existingShift.memberNames.length > 0 && !isIrregular) {
+      // 休館日（isClosed === true）の場合は、既存シフトがあってもクリア・休館扱いに上書きする
+      if (existingShift && existingShift.memberNames.length > 0 && !isClosed) {
         // すでに誰かが手動で入っている場合はスキップ
         // 交互割り当てのトグルカウンタも消費しないようにする
         return;
@@ -709,8 +754,8 @@ export const autoGenerateShifts = async (): Promise<Shift[]> => {
 
       // 新しい割り当てメンバーを決定
       let assignedMembers: string[] = [];
-      if (isIrregular) {
-        // テスト期間や祝日（休館日）はシフトメンバーは無し（自動スキップ）
+      if (isClosed) {
+        // 休館日（status === 'closed'）はシフトメンバーは無し（自動スキップ）
         assignedMembers = [];
       } else if (wishMembers.length === 1) {
         // 1名だけ希望の場合は毎週その人
@@ -726,7 +771,7 @@ export const autoGenerateShifts = async (): Promise<Shift[]> => {
         updatedShifts[existingShiftIndex] = {
           ...existingShift,
           memberNames: assignedMembers,
-          isDeleted: isIrregular
+          isDeleted: isClosed
         };
       } else {
         updatedShifts.push({
@@ -735,7 +780,7 @@ export const autoGenerateShifts = async (): Promise<Shift[]> => {
           startTime: '16:15',
           endTime: '18:15',
           memberNames: assignedMembers,
-          isDeleted: isIrregular
+          isDeleted: isClosed
         });
       }
     });

@@ -77,14 +77,16 @@ export const getIrregularPeriods = (): IrregularPeriod[] => {
         name: '中間試験 (休館)',
         startDate: '2026-05-25',
         endDate: '2026-05-28',
-        type: 'exam'
+        type: 'exam',
+        status: 'closed'
       },
       {
         id: 'irr_2',
         name: '開校記念日 (休館)',
         startDate: '2026-06-08',
         endDate: '2026-06-08',
-        type: 'holiday'
+        type: 'holiday',
+        status: 'closed'
       }
     ];
     saveIrregularPeriods(initialPeriods);
