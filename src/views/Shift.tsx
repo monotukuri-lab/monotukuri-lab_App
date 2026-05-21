@@ -763,7 +763,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
             <Card variant="outlined" style={styles.periodFormCard}>
               <form onSubmit={handleAddPeriod} style={styles.periodForm}>
                 <div style={styles.formRow}>
-                  <div className="form-group" style={{ flex: 2 }}>
+                  <div className="form-group" style={{ flex: '2 1 180px' }}>
                     <label className="form-label">期間の名称</label>
                     <input 
                       type="text" 
@@ -774,7 +774,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                       required
                     />
                   </div>
-                  <div className="form-group" style={{ flex: 1 }}>
+                  <div className="form-group" style={{ flex: '1 1 100px' }}>
                     <label className="form-label">区分</label>
                     <select 
                       className="form-control"
@@ -789,7 +789,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                 </div>
                 
                 <div style={styles.formRow}>
-                  <div className="form-group" style={{ flex: 1 }}>
+                  <div className="form-group" style={{ flex: '1 1 150px' }}>
                     <label className="form-label">開始日</label>
                     <input 
                       type="date" 
@@ -799,7 +799,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                       required
                     />
                   </div>
-                  <div className="form-group" style={{ flex: 1 }}>
+                  <div className="form-group" style={{ flex: '1 1 150px' }}>
                     <label className="form-label">終了日 (当日のみは開始日と同じ)</label>
                     <input 
                       type="date" 
@@ -1307,6 +1307,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   formRow: {
     display: 'flex',
     gap: '12px',
+    flexWrap: 'wrap',
   },
   subTitle: {
     fontSize: '0.88rem',
