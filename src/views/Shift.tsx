@@ -424,13 +424,10 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                     // 人数に応じた警告色の極薄背景設定
                     const count = shift ? shift.memberNames.length : 0;
                     if (count === 0) {
-                      cellBg = 'rgba(217, 48, 37, 0.05)'; // 薄い赤（深刻な空き）
+                      cellBg = 'rgba(217, 48, 37, 0.05)'; // 薄い赤（空き）
                       cellBorder = '1px dashed var(--md-sys-color-error)';
-                    } else if (count === 1) {
-                      cellBg = 'rgba(249, 171, 0, 0.05)'; // 薄いオレンジ（残り1名）
-                      cellBorder = '1px dashed #e67e22';
                     } else {
-                      cellBg = 'rgba(52, 168, 83, 0.04)'; // 薄い緑（満員）
+                      cellBg = 'rgba(52, 168, 83, 0.04)'; // 薄い緑（1名以上シフト入りで正常色）
                       cellBorder = '1px solid rgba(52, 168, 83, 0.2)';
                     }
                   }
@@ -492,13 +489,13 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                           </span>
                         ))}
                         
-                        {/* 平日かつ開館日かつ登録者数が2名未満の場合、「空き」を明示 */}
-                        {!isHoliday && !isIrregular && (!shift || shift.memberNames.length < 2) && !isFrameDeleted && (
+                        {/* 平日かつ開館日かつ登録者数が0名（空き）の場合、それを明示 */}
+                        {!isHoliday && !isIrregular && (!shift || shift.memberNames.length === 0) && !isFrameDeleted && (
                           <span style={{
                             ...styles.emptySlotLabel,
-                            color: !shift || shift.memberNames.length === 0 ? 'var(--md-sys-color-error)' : '#e67e22',
+                            color: 'var(--md-sys-color-error)',
                           }}>
-                            空き{2 - (shift ? shift.memberNames.length : 0)}
+                            空き
                           </span>
                         )}
                       </div>
