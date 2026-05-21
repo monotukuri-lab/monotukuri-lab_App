@@ -257,12 +257,3 @@ body {
   100% { transform: rotate(360deg); }
 }
 
-/* カレンダーのメンバーリストなどのスクロールバーを非表示にする */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
-

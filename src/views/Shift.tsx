@@ -11,7 +11,7 @@ import {
   getIrregularPeriodsApi, saveIrregularPeriodApi, deleteIrregularPeriodApi,
   getShiftPreferencesApi, saveShiftPreferencesApi, autoGenerateShifts
 } from '../services/api';
-import { getLocalDateString, getLastName } from '../services/storage';
+import { getLocalDateString, getLastName, getLastAutoRunDate, saveLastAutoRunDate } from '../services/storage';
 import html2canvas from 'html2canvas';
 
 interface ShiftProps {
@@ -34,7 +34,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [periodType, setPeriodType] = useState<'holiday' | 'exam' | 'other'>('exam');
-  const [periodStatus, setPeriodStatus] = useState<'closed' | 'open'>('closed');
+  const [periodIsOpen, setPeriodIsOpen] = useState<boolean>(false); // デフォルトは休館(false)
   const [generating, setGenerating] = useState(false);
 
   // カレンダーの現在の年月
@@ -52,6 +52,19 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
       // 今日を初期選択日とする
       const todayStr = getLocalDateString();
       setSelectedDate(todayStr);
+
+      // 【日次自動更新】日付の切り替わりを検知して1ヶ月先を自動作成
+      const lastRun = getLastAutoRunDate();
+      if (lastRun !== todayStr) {
+        try {
+          const resultShifts = await autoGenerateShifts(false);
+          setShifts(resultShifts);
+          saveLastAutoRunDate(todayStr);
+        } catch (err) {
+          console.error('日次自動更新に失敗しました:', err);
+        }
+      }
+
       setLoading(false);
     };
 
@@ -227,6 +240,9 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
     try {
       const res = await saveShiftPreferencesApi(updatedPrefs);
       setPreferences(res);
+      // リアルタイム自動適用 (上書きなし)
+      const resultShifts = await autoGenerateShifts(false);
+      setShifts(resultShifts);
     } catch (err) {
       console.error('希望シフトの保存に失敗しました:', err);
     }
@@ -248,7 +264,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
       startDate,
       endDate,
       type: periodType,
-      status: periodStatus
+      isOpen: periodIsOpen
     };
 
     try {
@@ -257,10 +273,10 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
       setPeriodName('');
       setStartDate('');
       setEndDate('');
-      setPeriodStatus('closed'); // デフォルトに戻す
+      setPeriodIsOpen(false);
       // カレンダーと自動生成用を同期するためにシフト枠をリロード
       await loadShifts();
-      alert(periodStatus === 'closed' ? '休館期間を追加しました。既存シフトは自動削除されました。' : '通常開館（イベント）期間を追加しました。');
+      alert('期間予定を追加しました。');
     } catch (err) {
       console.error('期間の追加に失敗しました:', err);
     }
@@ -268,7 +284,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
 
   // 【テスト期間・祝日の削除処理】
   const handleDeletePeriod = async (id: string) => {
-    if (!window.confirm('この休館設定を削除しますか？ (※カレンダーのグレーアウトは解除されますが、すでに生成済みのシフト枠メンバーは復元されません)')) return;
+    if (!window.confirm('この設定を削除しますか？ (※カレンダーの表示は元に戻りますが、すでに生成済みのシフト枠メンバーは復元されません)')) return;
 
     try {
       const res = await deleteIrregularPeriodApi(id);
@@ -290,12 +306,48 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
 
     setGenerating(true);
     try {
-      const resultShifts = await autoGenerateShifts();
+      const resultShifts = await autoGenerateShifts(false);
       setShifts(resultShifts);
       alert('本日から1ヶ月後までの自動割り当てが完了しました！');
     } catch (err) {
       console.error('自動割り当てエラー:', err);
       alert('自動割り当ての処理中にエラーが発生しました。');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // 【管理者権限】すべてのシフトを上書き再生成
+  const handleForceOverwriteGenerate = async () => {
+    const confirm1 = window.confirm(
+      "⚠️【警告】すべての未来のシフト枠を強制的に上書き再生成します。\n\n" +
+      "手動で調整・追加したメンバーのシフト情報もすべて削除され、固定希望曜日の設定に基づき完全に上書きされます。この操作は元に戻せません。\n\n" +
+      "本当に実行しますか？"
+    );
+    if (!confirm1) return;
+
+    const confirm2 = window.confirm(
+      "⚠️【最終確認】よろしいですか？\n" +
+      "「OK」を押すと管理者パスワードの入力に進みます。"
+    );
+    if (!confirm2) return;
+
+    const password = window.prompt("管理者用パスワードを入力してください：");
+    if (password === null) return;
+
+    if (password !== 'monotukuri') {
+      alert("パスワードが正しくありません。処理を中止しました。");
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      const resultShifts = await autoGenerateShifts(true);
+      setShifts(resultShifts);
+      alert('すべての未来のシフト情報を強制上書き再生成しました！');
+    } catch (err) {
+      console.error('強制自動割り当てエラー:', err);
+      alert('強制自動割り当ての処理中にエラーが発生しました。');
     } finally {
       setGenerating(false);
     }
@@ -403,8 +455,8 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                   
                   // イレギュラー期間（祝日やテスト期間）の判定
                   const activePeriod = irregularPeriods.find(p => day.dateString >= p.startDate && day.dateString <= p.endDate);
-                  const isClosedPeriod = activePeriod ? (activePeriod.status === 'closed' || !activePeriod.status) : false;
-                  const isOpenPeriod = activePeriod ? (activePeriod.status === 'open') : false;
+                  const isClosed = activePeriod ? activePeriod.isOpen === false : false;
+                  const isEventOpen = activePeriod ? activePeriod.isOpen === true : false;
                   const isFrameDeleted = shift && shift.isDeleted;
 
                   // 背景色と枠線の動的コントロール
@@ -415,58 +467,39 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                   if (!day.isCurrentMonth) {
                     cellBg = 'var(--md-sys-color-surface-container-lowest)';
                     cellBorder = '1px solid rgba(0,0,0,0.02)';
-                  } else if (isHoliday) {
-                    cellBg = 'var(--md-sys-color-surface-container-high)'; // グレーアウト（土日祝日）
-                    statusLabel = '休館';
-                  } else if (isClosedPeriod) {
-                    cellBg = 'var(--md-sys-color-surface-container-high)'; // グレーアウト（テスト期間など完全休館）
+                  } else if (isClosed) {
+                    cellBg = 'var(--md-sys-color-surface-container-high)';
                     statusLabel = activePeriod?.name || '休館';
+                  } else if (isHoliday) {
+                    cellBg = 'var(--md-sys-color-surface-container-lowest)';
+                    statusLabel = '休館';
                   } else if (isFrameDeleted) {
                     cellBg = 'var(--md-sys-color-error-container)';
                     statusLabel = '臨時休館';
                   } else {
-                    // 通常日 または 通常開館のイベント日(isOpenPeriod)
+                    // 人数に応じた警告色の極薄背景設定
                     const count = shift ? shift.memberNames.length : 0;
-                    
-                    if (isOpenPeriod) {
-                      // 通常開館イベント日の表示
-                      // 薄い黄色・オレンジ等の帯・背景にして、特別感を出します
-                      // カレンダーの充足色を優先しつつ、イベント日であることを少し強調する
-                      if (count === 0) {
-                        cellBg = 'rgba(217, 48, 37, 0.05)'; // 空き（薄赤）
-                        cellBorder = '1px dashed var(--md-sys-color-error)';
-                      } else if (count === 1) {
-                        cellBg = 'rgba(255, 235, 59, 0.08)'; // 薄い黄色（イベント中 ＆ 基本シフト）
-                        cellBorder = '1px solid rgba(255, 193, 7, 0.5)';
-                      } else {
-                        cellBg = 'rgba(52, 168, 83, 0.08)'; // 薄緑（充足）
-                        cellBorder = '1px solid rgba(52, 168, 83, 0.4)';
-                      }
-                      statusLabel = activePeriod?.name || 'イベント';
-                    } else {
-                      // 通常日
-                      if (count === 0) {
-                        cellBg = 'rgba(217, 48, 37, 0.05)'; // 0人：極薄赤背景 ＋ 赤い破線枠
-                        cellBorder = '1px dashed var(--md-sys-color-error)';
-                      } else if (count === 1) {
-                        cellBg = 'transparent'; // 1人：デフォルト色（クリア背景 ＋ 通常の枠線）
-                        cellBorder = '1px solid var(--md-sys-color-outline-variant)';
-                      } else {
-                        cellBg = 'rgba(52, 168, 83, 0.06)'; // 2人以上：薄緑背景 ＋ 薄い緑の実線枠（充足）
-                        cellBorder = '1px solid rgba(52, 168, 83, 0.3)';
-                      }
+                    if (count === 0) {
+                      cellBg = 'rgba(217, 48, 37, 0.05)'; // 薄い赤（空き）
+                      cellBorder = '1px dashed var(--md-sys-color-error)';
+                    } else if (count === 1) {
+                      cellBg = 'transparent'; // デフォルトクリア背景
+                      cellBorder = '1px solid var(--md-sys-color-outline-variant)'; // 通常枠
+                    } else if (count >= 2) {
+                      cellBg = 'rgba(52, 168, 83, 0.06)'; // 極薄緑背景
+                      cellBorder = '2px solid rgba(52, 168, 83, 0.5)'; // 充足強調枠（実線）
                     }
                   }
 
                   // 自分がシフトに入っている日を太い青枠で強調
                   const inShift = isUserInShift(shift);
-                  if (inShift && !isClosedPeriod && !isHoliday && !isFrameDeleted) {
+                  if (inShift && !isClosed && !isHoliday && !isFrameDeleted) {
                     cellBorder = '2px solid var(--md-sys-color-primary)';
                   }
 
                   // 選択中の日付を強調
                   if (isSelected) {
-                    cellBg = isClosedPeriod || isHoliday ? 'rgba(var(--md-sys-color-primary-rgb), 0.15)' : 'var(--md-sys-color-primary-container)';
+                    cellBg = 'var(--md-sys-color-primary-container)';
                   }
 
                   return (
@@ -499,42 +532,37 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                         {statusLabel && (
                           <span style={{
                             ...styles.statusMiniLabel,
-                            backgroundColor: isFrameDeleted 
-                              ? 'var(--md-sys-color-error)' 
-                              : isOpenPeriod 
-                                ? '#ff9800' // 通常開館のイベント日はオレンジ色
-                                : 'var(--md-sys-color-outline)',
+                            backgroundColor: isFrameDeleted ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-outline)',
                             color: 'white',
-                            fontSize: '0.65rem',
-                            padding: '1px 4px',
-                            borderRadius: '3px',
-                            maxWidth: '48px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            display: 'inline-block',
-                          }} title={statusLabel}>
-                            {statusLabel}
+                          }}>
+                            {statusLabel.substring(0, 3)}
                           </span>
                         )}
                       </div>
                       
                       {/* セル内メンバー名（苗字）の直接表示 */}
-                      <div style={styles.cellMembers} className="no-scrollbar">
-                        {shift && !shift.isDeleted && !isClosedPeriod && !isHoliday && shift.memberNames.map((name, idx) => (
+                      <div style={styles.cellMembers}>
+                        {shift && !shift.isDeleted && !isClosed && !isHoliday && shift.memberNames.map((name, idx) => (
                           <span key={idx} style={styles.lastNameBadge}>
                             {getLastName(name)}
                           </span>
                         ))}
                         
                         {/* 平日かつ開館日かつ登録者数が0名（空き）の場合、それを明示 */}
-                        {!isHoliday && !isClosedPeriod && (!shift || shift.memberNames.length === 0) && !isFrameDeleted && (
+                        {!isHoliday && !isClosed && (!shift || shift.memberNames.length === 0) && !isFrameDeleted && (
                           <span style={{
                             ...styles.emptySlotLabel,
                             color: 'var(--md-sys-color-error)',
                           }}>
                             空き
                           </span>
+                        )}
+
+                        {/* 通常開館（イベント日）の場合は黄色系ミニバッジをセル内に表示 */}
+                        {isEventOpen && !isFrameDeleted && (
+                          <div style={styles.eventMiniBadge} title={activePeriod?.name}>
+                            {activePeriod?.name}
+                          </div>
                         )}
                       </div>
                     </button>
@@ -544,7 +572,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
             </Card>
           </div>
 
-          {/* 選択日付のシフト詳細 */}
+          {/* 選択日付 of シフト詳細 */}
           <h3 style={styles.detailsTitle}>シフト詳細 : {selectedDate}</h3>
 
           {isWeekend(selectedDate) ? (
@@ -552,7 +580,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
               <Info size={16} style={{ marginRight: 8, flexShrink: 0 }} />
               <span>土曜日・日曜日はラボの休館日です。原則シフト枠はありません。</span>
             </Card>
-          ) : activePeriodForSelected ? (
+          ) : (activePeriodForSelected && activePeriodForSelected.isOpen === false) ? (
             <Card variant="filled" style={styles.noShiftInfo}>
               <Info size={16} style={{ marginRight: 8, flexShrink: 0 }} />
               <span>【休館期間】「{activePeriodForSelected.name}」のため、この期間はシフト枠がありません。</span>
@@ -740,7 +768,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                     <input 
                       type="text" 
                       className="form-control"
-                      placeholder="例: 中間テスト, GW休館" 
+                      placeholder="例: 中間テスト, プリンター講習会" 
                       value={periodName}
                       onChange={(e) => setPeriodName(e.target.value)}
                       required
@@ -755,7 +783,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                     >
                       <option value="exam">テスト期間</option>
                       <option value="holiday">祝日・公休</option>
-                      <option value="other">その他臨時休館</option>
+                      <option value="other">その他イベント・臨時</option>
                     </select>
                   </div>
                 </div>
@@ -783,37 +811,35 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                   </div>
                 </div>
 
-                <div className="form-group" style={{ marginBottom: '16px' }}>
-                  <label className="form-label">開館ステータス</label>
-                  <div style={{ display: 'flex', gap: '20px', alignItems: 'center', marginTop: '6px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                      <input 
-                        type="radio" 
-                        name="periodStatus" 
-                        value="closed"
-                        checked={periodStatus === 'closed'}
-                        onChange={() => setPeriodStatus('closed')}
-                        style={{ accentColor: 'var(--md-sys-color-primary)' }}
-                      />
-                      <span style={{ fontSize: '0.9rem' }}>① 休館（シフトなし・自動作成対象外）</span>
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                      <input 
-                        type="radio" 
-                        name="periodStatus" 
-                        value="open"
-                        checked={periodStatus === 'open'}
-                        onChange={() => setPeriodStatus('open')}
-                        style={{ accentColor: 'var(--md-sys-color-primary)' }}
-                      />
-                      <span style={{ fontSize: '0.9rem' }}>② 通常開館（シフトあり・イベント表示）</span>
-                    </label>
+                <div style={styles.formRow}>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">開館ステータス</label>
+                    <div style={{ display: 'flex', gap: '20px', marginTop: '6px', flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>
+                        <input 
+                          type="radio" 
+                          name="periodIsOpen" 
+                          checked={periodIsOpen === false}
+                          onChange={() => setPeriodIsOpen(false)}
+                        />
+                        <span>休館（自動シフト対象外・既存シフトクリア）</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>
+                        <input 
+                          type="radio" 
+                          name="periodIsOpen" 
+                          checked={periodIsOpen === true}
+                          onChange={() => setPeriodIsOpen(true)}
+                        />
+                        <span>通常開館（シフトあり・イベント名表示）</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
                 
                 <button type="submit" className="btn btn-secondary" style={{ marginTop: '8px' }}>
                   <Plus size={16} />
-                  <span>特定日程を追加する</span>
+                  <span>期間予定を追加する</span>
                 </button>
               </form>
             </Card>
@@ -823,27 +849,17 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
             <div style={styles.periodList}>
               {irregularPeriods.map(p => (
                 <div key={p.id} style={styles.periodItem}>
-                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div>
                     <span style={{
                       ...styles.periodBadge,
-                      backgroundColor: p.type === 'exam' ? 'var(--md-sys-color-error-container)' : 'var(--md-sys-color-primary-container)',
-                      color: p.type === 'exam' ? 'var(--md-sys-color-on-error-container)' : 'var(--md-sys-color-on-primary-container)',
-                      marginRight: 0
+                      backgroundColor: p.isOpen ? 'rgba(249, 171, 0, 0.15)' : (p.type === 'exam' ? 'var(--md-sys-color-error-container)' : 'var(--md-sys-color-primary-container)'),
+                      color: p.isOpen ? '#b06000' : (p.type === 'exam' ? 'var(--md-sys-color-on-error-container)' : 'var(--md-sys-color-on-primary-container)'),
+                      border: p.isOpen ? '1px solid rgba(249, 171, 0, 0.3)' : 'none',
                     }}>
-                      {p.type === 'exam' ? 'テスト' : p.type === 'holiday' ? '祝日' : '臨時'}
+                      {p.isOpen ? '開館（イベント）' : (p.type === 'exam' ? '休館(テスト)' : p.type === 'holiday' ? '休館(祝日)' : '休館(臨時)')}
                     </span>
-                    <span style={{
-                      backgroundColor: p.status === 'open' ? 'rgba(76, 175, 80, 0.15)' : 'rgba(128, 128, 128, 0.15)',
-                      color: p.status === 'open' ? '#2e7d32' : '#616161',
-                      border: p.status === 'open' ? '1px solid #2e7d32' : '1px solid #757575',
-                      padding: '1px 6px',
-                      fontSize: '0.75rem',
-                      borderRadius: '4px',
-                    }}>
-                      {p.status === 'open' ? '通常開館' : '休館'}
-                    </span>
-                    <strong style={{ marginLeft: 4 }}>{p.name}</strong>
-                    <span style={{ marginLeft: 4, fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                    <strong style={{ marginLeft: 8 }}>{p.name}</strong>
+                    <span style={{ marginLeft: 12, fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)' }}>
                       {p.startDate} 〜 {p.endDate}
                     </span>
                   </div>
@@ -856,7 +872,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                 </div>
               ))}
               {irregularPeriods.length === 0 && (
-                <p style={styles.emptyText}>登録されている休館期間はありません。</p>
+                <p style={styles.emptyText}>登録されている期間はありません。</p>
               )}
             </div>
           </div>
@@ -877,14 +893,32 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                 <Info size={16} style={{ flexShrink: 0 }} />
                 <span>過去の日付や、すでにメンバーが手動で登録されている確定済みシフトは一切上書きされず保護されます。</span>
               </div>
-              <button 
-                className="btn btn-primary" 
-                onClick={handleAutoGenerate}
-                disabled={generating}
-                style={{ width: '100%', padding: '12px', fontSize: '1rem', marginTop: '12px' }}
-              >
-                {generating ? '自動割り当て処理中...' : '本日〜1ヶ月後のシフトを自動作成する'}
-              </button>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleAutoGenerate}
+                  disabled={generating}
+                  style={{ width: '100%', padding: '12px', fontSize: '1rem' }}
+                >
+                  {generating ? '自動割り当て処理中...' : '本日〜1ヶ月後のシフトを自動作成する'}
+                </button>
+                <button 
+                  className="btn btn-outline" 
+                  onClick={handleForceOverwriteGenerate}
+                  disabled={generating}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px', 
+                    fontSize: '0.85rem', 
+                    borderColor: 'var(--md-sys-color-error)', 
+                    color: 'var(--md-sys-color-error)',
+                    backgroundColor: 'transparent'
+                  }}
+                >
+                  ⚠️ 全てのシフトを上書き再生成（管理者用）
+                </button>
+              </div>
             </Card>
           </div>
 
@@ -1004,7 +1038,8 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   dayCell: {
     width: '14.28%', // 7曜日均等
-    aspectRatio: '0.85', // 縦長の長方形にしてメンバー名を表示するスペースを確保
+    height: '74px',
+    overflow: 'hidden',
     background: 'none',
     cursor: 'pointer',
     display: 'flex',
@@ -1015,8 +1050,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     position: 'relative',
     borderRadius: '8px',
     transition: 'background-color 0.15s, border-color 0.15s',
-    overflow: 'hidden',
-    boxSizing: 'border-box',
   },
   cellHeader: {
     display: 'flex',
@@ -1043,11 +1076,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     flexDirection: 'column',
     gap: '2px',
     width: '100%',
-    marginTop: 'auto', // 下寄せにする
-    maxHeight: '36px', // バッジが何人分増えても縦伸びを防ぐ固定最大高さ
-    overflowY: 'auto', // 万が一溢れたらスクロール
-    scrollbarWidth: 'none', // Firefoxスクロールバー非表示
-    msOverflowStyle: 'none', // IE/Edgeスクロールバー非表示
+    marginTop: '4px',
+    overflow: 'hidden',
   },
   lastNameBadge: {
     fontSize: '0.68rem',
@@ -1343,5 +1373,21 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: '8px',
     alignItems: 'center',
     lineHeight: 1.4,
+  },
+  eventMiniBadge: {
+    fontSize: '0.62rem',
+    backgroundColor: 'rgba(249, 171, 0, 0.15)',
+    color: '#b06000',
+    border: '1px solid rgba(249, 171, 0, 0.3)',
+    padding: '1px 4px',
+    borderRadius: '4px',
+    textAlign: 'center',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    width: '100%',
+    boxSizing: 'border-box',
+    marginTop: '2px',
   }
 };

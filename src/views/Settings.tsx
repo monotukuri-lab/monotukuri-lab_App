@@ -1,6 +1,6 @@
 // src/views/Settings.tsx
 import React, { useState, useEffect } from 'react';
-import { User as UserIcon, Link, LogOut, HelpCircle } from 'lucide-react';
+import { User as UserIcon, Link, LogOut, HelpCircle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import type { User } from '../types';
 import { Card } from '../components/Card';
 import { saveGasApiUrl, getGasApiUrl, clearCurrentUser } from '../services/storage';
@@ -13,6 +13,18 @@ interface SettingsProps {
 export const Settings: React.FC<SettingsProps> = ({ user, onLogout }) => {
   const [gasUrl, setGasUrl] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    register: false,
+    color: false,
+    engine: false,
+  });
+
+  const toggleSection = (section: string) => {
+    setOpenSections(prev => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
 
   useEffect(() => {
     // 既存の保存されているGAS URLを取得
@@ -131,6 +143,95 @@ export const Settings: React.FC<SettingsProps> = ({ user, onLogout }) => {
             </button>
           </div>
         </form>
+      </Card>
+
+      {/* 使い方マニュアル (ヘルプ) */}
+      <h3 style={styles.sectionTitle}>
+        <BookOpen size={16} color="var(--md-sys-color-primary)" />
+        <span>使い方マニュアル（ヘルプ）</span>
+      </h3>
+
+      <Card variant="outlined" style={styles.manualCard}>
+        <div style={styles.accordionItem}>
+          <button 
+            style={styles.accordionHeader} 
+            onClick={() => toggleSection('register')}
+          >
+            <span>1. シフトの登録・変更方法</span>
+            {openSections.register ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          {openSections.register && (
+            <div style={styles.accordionContent}>
+              <p>シフトの登録には以下の2つの方法があります：</p>
+              <ul style={styles.manualList}>
+                <li><strong>固定曜日の希望登録（毎週のベース）：</strong><br />「希望登録 ＆ 自動作成」タブで各曜日のスロットに希望を登録します。登録した内容は即座に未来のシフト作成エンジンに反映されます。</li>
+                <li><strong>日付ごとの個別調整（手動）：</strong><br />「シフトカレンダー」タブで特定の日付をタップし、下部詳細エリアの「このシフトに入る」または「シフトから抜ける」ボタンを押すことで、個別の調整や参加が可能です。</li>
+                <li><strong>休館日・テスト期間の追加（管理者）：</strong><br />管理者用フォームから期間を指定して「休館」として登録すると、自動的にその範囲の既存シフトがクリアされ、自動作成対象外に設定されます。</li>
+              </ul>
+            </div>
+          )}
+        </div>
+
+        <div style={styles.accordionItem}>
+          <button 
+            style={styles.accordionHeader} 
+            onClick={() => toggleSection('color')}
+          >
+            <span>2. カレンダーの配色と意味</span>
+            {openSections.color ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          {openSections.color && (
+            <div style={styles.accordionContent}>
+              <p>シフトカレンダーのマス目は、その日の人員の充足度や開館状態に応じて以下のように自動色分けされます：</p>
+              
+              <div style={styles.colorGrid}>
+                <div style={{ ...styles.colorItem, border: '1px dashed var(--md-sys-color-error)', backgroundColor: 'rgba(217, 48, 37, 0.05)', color: 'var(--md-sys-color-error)' }}>
+                  <span>● 0名（空き・赤破線）</span>
+                </div>
+                <div style={{ ...styles.colorItem, border: '1px solid var(--md-sys-color-outline-variant)', backgroundColor: 'transparent', color: 'var(--md-sys-color-on-surface)' }}>
+                  <span>● 1名（通常・実線枠）</span>
+                </div>
+                <div style={{ ...styles.colorItem, border: '2px solid rgba(52, 168, 83, 0.5)', backgroundColor: 'rgba(52, 168, 83, 0.06)', color: '#2e7d32' }}>
+                  <span>● 2名以上（充足・緑太枠）</span>
+                </div>
+                <div style={{ ...styles.colorItem, backgroundColor: 'var(--md-sys-color-surface-container-high)', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                  <span>● 休館・祝日（グレー）</span>
+                </div>
+                <div style={{ ...styles.colorItem, border: '2px solid var(--md-sys-color-primary)', color: 'var(--md-sys-color-primary)' }}>
+                  <span>● 自分が入っている日（青枠）</span>
+                </div>
+                <div style={{ ...styles.colorItem, backgroundColor: 'var(--md-sys-color-error-container)', color: 'var(--md-sys-color-error)' }}>
+                  <span>● 臨時休館（赤背景）</span>
+                </div>
+              </div>
+              <p style={{ marginTop: '10px' }}>
+                <span style={{ fontWeight: 700 }}>通常開館（イベント名表示）</span>の日は、カレンダー上に黄色いイベントミニバッジが表示され、固定曜日の通常シフトを配置しつつ、通常開館されます。
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div style={styles.accordionItem}>
+          <button 
+            style={styles.accordionHeader} 
+            onClick={() => toggleSection('engine')}
+          >
+            <span>3. 自動シフト作成エンジンの仕組み</span>
+            {openSections.engine ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          {openSections.engine && (
+            <div style={styles.accordionContent}>
+              <p>当アプリには、管理者の負担を極限まで減らすための自動シフト生成エンジンが搭載されています：</p>
+              <ul style={styles.manualList}>
+                <li><strong>リアルタイム更新機能：</strong><br />固定曜日の希望（⊕/⊖）を操作した直後に、未確定の未来シフト枠へ新しい希望ルールが自動的に適用されます。</li>
+                <li><strong>日次定期更新機能：</strong><br />毎日日付が変わった後、誰かがアプリを起動した際に、新しく発生した「1ヶ月先（30日後）」の1日分のシフト枠を自動で割り当てて先回り入力します。</li>
+                <li><strong>隔週交互割り当て（公平ルール）：</strong><br />1つの曜日スロットに2名の希望者がいる場合、偏りが出ないよう日付順に交互に割り当てを行い、出現回数が完全に均等になるよう自動調整します。</li>
+                <li><strong>1名上限ルール：</strong><br />自動生成時は1日あたり最大1名まで割り当てます（手動で2名以上追加することはいつでも可能です）。</li>
+                <li><strong>休館日の自動スキップ＆強制削除：</strong><br />登録された休館予定期間内は自動割り当てがスキップされます。また、本日〜1ヶ月先に休館日が新規登録された場合、その範囲内の既存確定シフトメンバーは自動で強制削除されます。</li>
+              </ul>
+            </div>
+          )}
+        </div>
       </Card>
 
       {/* アプリ情報・ヘルプ */}
@@ -289,5 +390,58 @@ const styles: { [key: string]: React.CSSProperties } = {
   logoutBtn: {
     marginTop: '24px',
     height: '46px',
+  },
+  manualCard: {
+    padding: '16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  accordionItem: {
+    border: '1px solid var(--md-sys-color-outline-variant)',
+    borderRadius: '8px',
+    overflow: 'hidden',
+    backgroundColor: 'var(--md-sys-color-surface-container-low)',
+  },
+  accordionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px 16px',
+    backgroundColor: 'var(--md-sys-color-surface-container-high)',
+    cursor: 'pointer',
+    fontWeight: 700,
+    fontSize: '0.88rem',
+    color: 'var(--md-sys-color-on-surface)',
+    border: 'none',
+    width: '100%',
+    textAlign: 'left',
+  },
+  accordionContent: {
+    padding: '14px 16px',
+    fontSize: '0.82rem',
+    color: 'var(--md-sys-color-on-surface-variant)',
+    lineHeight: '1.5',
+    backgroundColor: 'var(--md-sys-color-surface-container-lowest)',
+    borderTop: '1px solid var(--md-sys-color-outline-variant)',
+  },
+  manualList: {
+    paddingLeft: '20px',
+    margin: '8px 0',
+  },
+  colorGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+    gap: '8px',
+    marginTop: '8px',
+  },
+  colorItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 8px',
+    borderRadius: '6px',
+    fontSize: '0.75rem',
+    fontWeight: 600,
   }
 };

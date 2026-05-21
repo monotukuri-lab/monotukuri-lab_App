@@ -75,7 +75,7 @@ export interface IrregularPeriod {
   startDate: string; // 開始日 (YYYY-MM-DD)
   endDate: string;   // 終了日 (YYYY-MM-DD)
   type: 'holiday' | 'exam' | 'other';
-  status?: 'closed' | 'open'; // 'closed' = 休館(シフトなし), 'open' = 通常開館(シフトあり・イベント等)
+  isOpen: boolean;   // 通常開館（シフトあり・イベントなど）なら true、休館（シフトなし）なら false
 }
 
 /**

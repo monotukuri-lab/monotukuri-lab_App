@@ -6,6 +6,7 @@ const KEYS = {
   GAS_API_URL: 'mtl_app_gas_url',
   PREFERENCES: 'mtl_app_shift_prefs',
   IRREGULAR_PERIODS: 'mtl_app_irregular_periods',
+  LAST_AUTO_RUN: 'mtl_app_last_auto_run',
 };
 
 /**
@@ -78,7 +79,7 @@ export const getIrregularPeriods = (): IrregularPeriod[] => {
         startDate: '2026-05-25',
         endDate: '2026-05-28',
         type: 'exam',
-        status: 'closed'
+        isOpen: false
       },
       {
         id: 'irr_2',
@@ -86,7 +87,7 @@ export const getIrregularPeriods = (): IrregularPeriod[] => {
         startDate: '2026-06-08',
         endDate: '2026-06-08',
         type: 'holiday',
-        status: 'closed'
+        isOpen: false
       }
     ];
     saveIrregularPeriods(initialPeriods);
@@ -104,6 +105,20 @@ export const getIrregularPeriods = (): IrregularPeriod[] => {
  */
 export const saveIrregularPeriods = (periods: IrregularPeriod[]): void => {
   localStorage.setItem(KEYS.IRREGULAR_PERIODS, JSON.stringify(periods));
+};
+
+/**
+ * 前回日次自動更新を実行した日付を取得する
+ */
+export const getLastAutoRunDate = (): string | null => {
+  return localStorage.getItem(KEYS.LAST_AUTO_RUN);
+};
+
+/**
+ * 前回日次自動更新を実行した日付を保存する
+ */
+export const saveLastAutoRunDate = (dateStr: string): void => {
+  localStorage.setItem(KEYS.LAST_AUTO_RUN, dateStr);
 };
 
 
