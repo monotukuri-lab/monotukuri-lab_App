@@ -65,3 +65,24 @@ export interface Announcement {
   date: string;
   important: boolean;
 }
+
+/**
+ * 祝日やテスト期間（イレギュラー休館日）の情報
+ */
+export interface IrregularPeriod {
+  id: string;
+  name: string;      // 例: "中間テスト", "創立記念日", "GW"
+  startDate: string; // 開始日 (YYYY-MM-DD)
+  endDate: string;   // 終了日 (YYYY-MM-DD)
+  type: 'holiday' | 'exam' | 'other';
+}
+
+/**
+ * 曜日ごとの固定希望シフト枠
+ */
+export interface ShiftPreference {
+  dayOfWeek: number; // 1: 月曜日 〜 5: 金曜日
+  slot1: string;     // メンバー名1 (役職表記込み、空なら "")
+  slot2: string;     // メンバー名2 (役職表記込み、空なら "")
+}
+

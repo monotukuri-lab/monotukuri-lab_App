@@ -1,10 +1,18 @@
 // src/views/Shift.tsx
 import React, { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, UserPlus, UserMinus, EyeOff, Eye, Info } from 'lucide-react';
-import type { User, Shift as ShiftType } from '../types';
+import { 
+  ChevronLeft, ChevronRight, UserPlus, UserMinus, EyeOff, Eye, Info, 
+  Download, Calendar as CalendarIcon, Settings, Plus, Trash2 
+} from 'lucide-react';
+import type { User, Shift as ShiftType, ShiftPreference, IrregularPeriod } from '../types';
 import { Card } from '../components/Card';
-import { getShifts, joinShift, leaveShift, deleteShiftFrame, restoreShiftFrame } from '../services/api';
-import { getLocalDateString } from '../services/storage';
+import { 
+  getShifts, joinShift, leaveShift, deleteShiftFrame, restoreShiftFrame,
+  getIrregularPeriodsApi, saveIrregularPeriodApi, deleteIrregularPeriodApi,
+  getShiftPreferencesApi, saveShiftPreferencesApi, autoGenerateShifts
+} from '../services/api';
+import { getLocalDateString, getLastName } from '../services/storage';
+import html2canvas from 'html2canvas';
 
 interface ShiftProps {
   user: User;
@@ -16,27 +24,58 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [loading, setLoading] = useState(true);
 
+  // 新機能関連の状態
+  const [activeTab, setActiveTab] = useState<'calendar' | 'preferences'>('calendar');
+  const [preferences, setPreferences] = useState<ShiftPreference[]>([]);
+  const [irregularPeriods, setIrregularPeriods] = useState<IrregularPeriod[]>([]);
+  
+  // テスト期間/祝日登録用フォーム状態
+  const [periodName, setPeriodName] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [periodType, setPeriodType] = useState<'holiday' | 'exam' | 'other'>('exam');
+  const [generating, setGenerating] = useState(false);
+
   // カレンダーの現在の年月
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
   useEffect(() => {
-    loadShifts();
-    
-    // 今日を初期選択日とする
-    const todayStr = getLocalDateString();
-    setSelectedDate(todayStr);
+    const initData = async () => {
+      setLoading(true);
+      await Promise.all([
+        loadShifts(),
+        loadPreferencesAndPeriods()
+      ]);
+      
+      // 今日を初期選択日とする
+      const todayStr = getLocalDateString();
+      setSelectedDate(todayStr);
+      setLoading(false);
+    };
+
+    initData();
   }, []);
 
   const loadShifts = async () => {
-    setLoading(true);
     try {
       const data = await getShifts();
       setShifts(data);
     } catch (err) {
       console.error('シフトのロードに失敗しました:', err);
-    } finally {
-      setLoading(false);
+    }
+  };
+
+  const loadPreferencesAndPeriods = async () => {
+    try {
+      const [prefs, periods] = await Promise.all([
+        getShiftPreferencesApi(),
+        getIrregularPeriodsApi()
+      ]);
+      setPreferences(prefs);
+      setIrregularPeriods(periods);
+    } catch (err) {
+      console.error('希望シフトおよび期間設定の読み込みに失敗しました:', err);
     }
   };
 
@@ -71,7 +110,6 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
     // 当月分
     for (let i = 1; i <= totalDays; i++) {
       const currDate = new Date(year, month, i);
-      // UTCズレを防ぐためのローカル日付文字列化
       const localDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
       days.push({
         date: currDate,
@@ -148,12 +186,127 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
     }
   };
 
+  // 【カレンダー画像保存機能】
+  const handleSaveCalendarImage = async () => {
+    const calendarElement = document.getElementById('calendar-area');
+    if (!calendarElement) return;
+
+    try {
+      // 影や一時的なボタン操作などを調整してキャプチャ
+      const canvas = await html2canvas(calendarElement, {
+        useCORS: true,
+        scale: 2, // 高解像度で保存
+        backgroundColor: '#ffffff',
+      });
+      const image = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = image;
+      link.download = `monotukuri-lab_カレンダー_${year}年${month + 1}月.png`;
+      link.click();
+    } catch (err) {
+      console.error('カレンダー画像の保存に失敗しました:', err);
+      alert('カレンダー画像の保存に失敗しました。');
+    }
+  };
+
+  // 【希望曜日トグル処理】
+  const handleTogglePreference = async (dayOfWeek: number, slotNum: 1 | 2) => {
+    const formattedName = `${user.name} (${user.role === 'ta' ? 'TA' : '教員'})`;
+    const updatedPrefs = preferences.map(p => {
+      if (p.dayOfWeek === dayOfWeek) {
+        if (slotNum === 1) {
+          return { ...p, slot1: p.slot1 === formattedName ? '' : formattedName };
+        } else {
+          return { ...p, slot2: p.slot2 === formattedName ? '' : formattedName };
+        }
+      }
+      return p;
+    });
+
+    try {
+      const res = await saveShiftPreferencesApi(updatedPrefs);
+      setPreferences(res);
+    } catch (err) {
+      console.error('希望シフトの保存に失敗しました:', err);
+    }
+  };
+
+  // 【テスト期間・祝日の追加処理】
+  const handleAddPeriod = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!periodName.trim() || !startDate || !endDate) return;
+
+    if (startDate > endDate) {
+      alert('開始日は終了日より前の日付にしてください。');
+      return;
+    }
+
+    const newPeriod: IrregularPeriod = {
+      id: `irr_${new Date().getTime()}`,
+      name: periodName,
+      startDate,
+      endDate,
+      type: periodType
+    };
+
+    try {
+      const res = await saveIrregularPeriodApi(newPeriod);
+      setIrregularPeriods(res);
+      setPeriodName('');
+      setStartDate('');
+      setEndDate('');
+      // カレンダーと自動生成用を同期するためにシフト枠をリロード
+      await loadShifts();
+      alert('休館期間を追加しました。');
+    } catch (err) {
+      console.error('期間の追加に失敗しました:', err);
+    }
+  };
+
+  // 【テスト期間・祝日の削除処理】
+  const handleDeletePeriod = async (id: string) => {
+    if (!window.confirm('この休館設定を削除しますか？ (※カレンダーのグレーアウトは解除されますが、すでに生成済みのシフト枠メンバーは復元されません)')) return;
+
+    try {
+      const res = await deleteIrregularPeriodApi(id);
+      setIrregularPeriods(res);
+      await loadShifts();
+    } catch (err) {
+      console.error('期間の削除に失敗しました:', err);
+    }
+  };
+
+  // 【希望シフト自動反映の実行処理】
+  const handleAutoGenerate = async () => {
+    const confirmMessage = 
+      '本日から1ヶ月後（30日後）までの期間を対象に、登録された希望シフトに基づいた自動割り当てを実行します。\n\n' +
+      '※すでに手動でメンバーが登録されている日、過去の日付、および登録済みの休館日（テスト期間・祝日）は上書きされず保護されます。\n\n' +
+      '実行してよろしいですか？';
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setGenerating(true);
+    try {
+      const resultShifts = await autoGenerateShifts();
+      setShifts(resultShifts);
+      alert('本日から1ヶ月後までの自動割り当てが完了しました！');
+    } catch (err) {
+      console.error('自動割り当てエラー:', err);
+      alert('自動割り当ての処理中にエラーが発生しました。');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   // 選択中の日付のシフト情報
   const activeShift = getShiftForDate(selectedDate);
   const isWeekend = (dateStr: string) => {
     const day = new Date(dateStr).getDay();
     return day === 0 || day === 6; // 0:日曜, 6:土曜
   };
+
+  // 選択日が祝日やテスト期間（イレギュラー休館）に含まれるか判定
+  const activePeriodForSelected = irregularPeriods.find(p => selectedDate >= p.startDate && selectedDate <= p.endDate);
 
   if (loading) {
     return (
@@ -166,184 +319,535 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
 
   return (
     <div className="fade-in">
-      <div style={styles.header}>
-        <h2 style={styles.title}>カレンダー</h2>
-        <div style={styles.monthSelector}>
-          <button style={styles.arrowBtn} onClick={handlePrevMonth}>
-            <ChevronLeft size={20} />
-          </button>
-          <span style={styles.monthLabel}>
-            {year}年 {month + 1}月
-          </span>
-          <button style={styles.arrowBtn} onClick={handleNextMonth}>
-            <ChevronRight size={20} />
-          </button>
-        </div>
+      {/* タブ切り替えトグル */}
+      <div style={styles.tabContainer}>
+        <button 
+          style={{
+            ...styles.tabButton,
+            borderBottom: activeTab === 'calendar' ? '3px solid var(--md-sys-color-primary)' : 'none',
+            color: activeTab === 'calendar' ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)',
+            fontWeight: activeTab === 'calendar' ? 700 : 500,
+          }}
+          onClick={() => setActiveTab('calendar')}
+        >
+          <CalendarIcon size={18} />
+          <span>シフトカレンダー</span>
+        </button>
+        <button 
+          style={{
+            ...styles.tabButton,
+            borderBottom: activeTab === 'preferences' ? '3px solid var(--md-sys-color-primary)' : 'none',
+            color: activeTab === 'preferences' ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)',
+            fontWeight: activeTab === 'preferences' ? 700 : 500,
+          }}
+          onClick={() => setActiveTab('preferences')}
+        >
+          <Settings size={18} />
+          <span>希望登録 ＆ 自動作成</span>
+        </button>
       </div>
 
-      {/* カレンダー本体 */}
-      <Card variant="outlined" style={styles.calendarCard}>
-        <div style={styles.weekHeader}>
-          {['日', '月', '火', '水', '木', '金', '土'].map((w, idx) => (
-            <span 
-              key={w} 
-              style={{
-                ...styles.weekCell,
-                color: idx === 0 ? 'var(--md-sys-color-error)' : idx === 6 ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'
-              }}
-            >
-              {w}
-            </span>
-          ))}
-        </div>
-
-        <div style={styles.daysGrid}>
-          {calendarDays.map((day, index) => {
-            const shift = getShiftForDate(day.dateString);
-            const isSelected = selectedDate === day.dateString;
-            const dayNum = day.date.getDate();
-            const dayOfWeek = day.date.getDay();
-            const isToday = getLocalDateString() === day.dateString;
-            const isHoliday = dayOfWeek === 0 || dayOfWeek === 6;
-            
-            // シフト状態の割り出し
-            const hasMembers = shift && shift.memberNames.length > 0;
-            const isFrameDeleted = shift && shift.isDeleted;
-
-            return (
-              <button
-                key={index}
-                onClick={() => setSelectedDate(day.dateString)}
-                style={{
-                  ...styles.dayCell,
-                  color: !day.isCurrentMonth
-                    ? '#ccc'
-                    : isHoliday
-                    ? dayOfWeek === 0 ? '#d93025' : '#1a73e8'
-                    : 'var(--md-sys-color-on-surface)',
-                  backgroundColor: isSelected
-                    ? 'var(--md-sys-color-primary-container)'
-                    : 'transparent',
-                  fontWeight: isSelected || isToday ? 700 : 400,
-                  border: isToday ? '1px solid var(--md-sys-color-primary)' : 'none',
-                }}
-              >
-                <span style={styles.dayNumber}>{dayNum}</span>
-                
-                {/* 状態表示ドット */}
-                <div style={styles.dotContainer}>
-                  {isFrameDeleted ? (
-                    <div style={styles.deletedDot} title="休館・枠削除"></div>
-                  ) : hasMembers ? (
-                    <div style={styles.activeDot} title="シフト登録あり"></div>
-                  ) : day.isCurrentMonth && !isHoliday ? (
-                    <div style={styles.emptyDot} title="枠あり（空き）"></div>
-                  ) : null}
-                </div>
+      {activeTab === 'calendar' ? (
+        <>
+          <div style={styles.header}>
+            <h2 style={styles.title}>カレンダー</h2>
+            <div style={styles.headerActions}>
+              {/* 画像保存ボタン */}
+              <button style={styles.iconActionBtn} onClick={handleSaveCalendarImage} title="カレンダーを画像として保存">
+                <Download size={18} />
+                <span style={styles.btnLabel}>画像保存</span>
               </button>
-            );
-          })}
-        </div>
-      </Card>
-
-      {/* 選択日付のシフト詳細 */}
-      <h3 style={styles.detailsTitle}>シフト詳細 : {selectedDate}</h3>
-
-      {isWeekend(selectedDate) ? (
-        <Card variant="filled" style={styles.noShiftInfo}>
-          <Info size={16} style={{ marginRight: 8, flexShrink: 0 }} />
-          <span>土曜日・日曜日はラボの休館日です。原則シフト枠はありません。</span>
-        </Card>
-      ) : activeShift?.isDeleted ? (
-        <Card variant="filled" style={styles.deletedInfoCard}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <EyeOff size={18} color="var(--md-sys-color-error)" />
-            <h4 style={{ color: 'var(--md-sys-color-on-error-container)', fontWeight: 700 }}>
-              本日はシフト休止（休館）です
-            </h4>
-          </div>
-          <p style={styles.infoText}>祝日や試験等のため、この日の開館シフト枠は削除されています。</p>
-          
-          <button
-            className="btn btn-outline"
-            style={{ marginTop: 12, backgroundColor: 'white' }}
-            onClick={() => handleRestoreShiftFrame(selectedDate)}
-          >
-            <Eye size={16} />
-            <span>シフト枠を復活させる</span>
-          </button>
-        </Card>
-      ) : (
-        <Card variant="elevated" style={styles.detailsCard}>
-          <div style={styles.shiftMeta}>
-            <span style={styles.timeLabel}>基本勤務時間帯:</span>
-            <span style={styles.timeVal}>16:15 〜 18:15</span>
+              
+              <div style={styles.monthSelector}>
+                <button style={styles.arrowBtn} onClick={handlePrevMonth}>
+                  <ChevronLeft size={20} />
+                </button>
+                <span style={styles.monthLabel}>
+                  {year}年 {month + 1}月
+                </span>
+                <button style={styles.arrowBtn} onClick={handleNextMonth}>
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div style={styles.memberSection}>
-            <h4 style={styles.memberTitle}>
-              担当メンバー ({activeShift?.memberNames.length || 0}名)
-            </h4>
-            
-            {activeShift && activeShift.memberNames.length > 0 ? (
-              <div style={styles.memberList}>
-                {activeShift.memberNames.map((name, idx) => (
-                  <div key={idx} style={styles.memberItem}>
-                    <div style={styles.avatar}>
-                      {name.charAt(0)}
-                    </div>
-                    <span style={styles.memberName}>{name}</span>
-                  </div>
+          {/* カレンダーエリア (キャプチャ対象) */}
+          <div id="calendar-area" style={styles.calendarCaptureWrapper}>
+            <Card variant="outlined" style={styles.calendarCard}>
+              <div style={styles.weekHeader}>
+                {['日', '月', '火', '水', '木', '金', '土'].map((w, idx) => (
+                  <span 
+                    key={w} 
+                    style={{
+                      ...styles.weekCell,
+                      color: idx === 0 ? 'var(--md-sys-color-error)' : idx === 6 ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'
+                    }}
+                  >
+                    {w}
+                  </span>
                 ))}
               </div>
-            ) : (
-              <p style={styles.noMembers}>現在、このシフト枠に登録されているTA・教員はいません。自由に参加登録できます。</p>
-            )}
+
+              <div style={styles.daysGrid}>
+                {calendarDays.map((day, index) => {
+                  const shift = getShiftForDate(day.dateString);
+                  const isSelected = selectedDate === day.dateString;
+                  const dayNum = day.date.getDate();
+                  const dayOfWeek = day.date.getDay();
+                  const isToday = getLocalDateString() === day.dateString;
+                  const isHoliday = dayOfWeek === 0 || dayOfWeek === 6;
+                  
+                  // イレギュラー期間（祝日やテスト期間）の判定
+                  const activePeriod = irregularPeriods.find(p => day.dateString >= p.startDate && day.dateString <= p.endDate);
+                  const isIrregular = !!activePeriod;
+                  const isFrameDeleted = shift && shift.isDeleted;
+
+                  // 背景色と枠線の動的コントロール
+                  let cellBg = 'transparent';
+                  let cellBorder = '1px solid var(--md-sys-color-outline-variant)';
+                  let statusLabel = '';
+
+                  if (!day.isCurrentMonth) {
+                    cellBg = 'var(--md-sys-color-surface-container-lowest)';
+                    cellBorder = '1px solid rgba(0,0,0,0.02)';
+                  } else if (isIrregular) {
+                    cellBg = 'var(--md-sys-color-surface-container-high)';
+                    statusLabel = activePeriod?.name || '休館';
+                  } else if (isHoliday) {
+                    cellBg = 'var(--md-sys-color-surface-container-lowest)';
+                    statusLabel = '休館';
+                  } else if (isFrameDeleted) {
+                    cellBg = 'var(--md-sys-color-error-container)';
+                    statusLabel = '臨時休館';
+                  } else {
+                    // 人数に応じた警告色の極薄背景設定
+                    const count = shift ? shift.memberNames.length : 0;
+                    if (count === 0) {
+                      cellBg = 'rgba(217, 48, 37, 0.05)'; // 薄い赤（深刻な空き）
+                      cellBorder = '1px dashed var(--md-sys-color-error)';
+                    } else if (count === 1) {
+                      cellBg = 'rgba(249, 171, 0, 0.05)'; // 薄いオレンジ（残り1名）
+                      cellBorder = '1px dashed #e67e22';
+                    } else {
+                      cellBg = 'rgba(52, 168, 83, 0.04)'; // 薄い緑（満員）
+                      cellBorder = '1px solid rgba(52, 168, 83, 0.2)';
+                    }
+                  }
+
+                  // 自分がシフトに入っている日を太い青枠で強調
+                  const inShift = isUserInShift(shift);
+                  if (inShift && !isIrregular && !isHoliday && !isFrameDeleted) {
+                    cellBorder = '2px solid var(--md-sys-color-primary)';
+                  }
+
+                  // 選択中の日付を強調
+                  if (isSelected) {
+                    cellBg = 'var(--md-sys-color-primary-container)';
+                  }
+
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => setSelectedDate(day.dateString)}
+                      style={{
+                        ...styles.dayCell,
+                        backgroundColor: cellBg,
+                        border: cellBorder,
+                        opacity: day.isCurrentMonth ? 1 : 0.4,
+                      }}
+                    >
+                      <div style={styles.cellHeader}>
+                        <span style={{
+                          ...styles.dayNumber,
+                          color: isToday ? 'white' : (isHoliday ? '#d93025' : 'var(--md-sys-color-on-surface)'),
+                          backgroundColor: isToday ? 'var(--md-sys-color-primary)' : 'transparent',
+                          borderRadius: isToday ? '50%' : 'none',
+                          width: isToday ? '18px' : 'auto',
+                          height: isToday ? '18px' : 'auto',
+                          display: isToday ? 'inline-flex' : 'inline',
+                          alignItems: isToday ? 'center' : 'stretch',
+                          justifyContent: isToday ? 'center' : 'stretch',
+                          fontWeight: isToday || isSelected ? 700 : 400,
+                        }}>
+                          {dayNum}
+                        </span>
+                        
+                        {statusLabel && (
+                          <span style={{
+                            ...styles.statusMiniLabel,
+                            backgroundColor: isFrameDeleted ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-outline)',
+                            color: 'white',
+                          }}>
+                            {statusLabel.substring(0, 3)}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* セル内メンバー名（苗字）の直接表示 */}
+                      <div style={styles.cellMembers}>
+                        {shift && !shift.isDeleted && !isIrregular && !isHoliday && shift.memberNames.map((name, idx) => (
+                          <span key={idx} style={styles.lastNameBadge}>
+                            {getLastName(name)}
+                          </span>
+                        ))}
+                        
+                        {/* 平日かつ開館日かつ登録者数が2名未満の場合、「空き」を明示 */}
+                        {!isHoliday && !isIrregular && (!shift || shift.memberNames.length < 2) && !isFrameDeleted && (
+                          <span style={{
+                            ...styles.emptySlotLabel,
+                            color: !shift || shift.memberNames.length === 0 ? 'var(--md-sys-color-error)' : '#e67e22',
+                          }}>
+                            空き{2 - (shift ? shift.memberNames.length : 0)}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
           </div>
 
-          {/* アクションボタン */}
-          <div style={styles.actions}>
-            <button
-              className={`btn ${isUserInShift(activeShift) ? 'btn-danger' : 'btn-primary'}`}
-              style={{ flex: 1 }}
-              onClick={() => handleToggleShift(selectedDate)}
-            >
-              {isUserInShift(activeShift) ? (
-                <>
-                  <UserMinus size={16} />
-                  <span>シフトから抜ける</span>
-                </>
-              ) : (
-                <>
-                  <UserPlus size={16} />
-                  <span>このシフトに入る</span>
-                </>
+          {/* 選択日付のシフト詳細 */}
+          <h3 style={styles.detailsTitle}>シフト詳細 : {selectedDate}</h3>
+
+          {isWeekend(selectedDate) ? (
+            <Card variant="filled" style={styles.noShiftInfo}>
+              <Info size={16} style={{ marginRight: 8, flexShrink: 0 }} />
+              <span>土曜日・日曜日はラボの休館日です。原則シフト枠はありません。</span>
+            </Card>
+          ) : activePeriodForSelected ? (
+            <Card variant="filled" style={styles.noShiftInfo}>
+              <Info size={16} style={{ marginRight: 8, flexShrink: 0 }} />
+              <span>【休館期間】「{activePeriodForSelected.name}」のため、この期間はシフト枠がありません。</span>
+            </Card>
+          ) : activeShift?.isDeleted ? (
+            <Card variant="filled" style={styles.deletedInfoCard}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <EyeOff size={18} color="var(--md-sys-color-error)" />
+                <h4 style={{ color: 'var(--md-sys-color-on-error-container)', fontWeight: 700 }}>
+                  本日はシフト休止（休館）です
+                </h4>
+              </div>
+              <p style={styles.infoText}>祝日や試験等のため、この日の開館シフト枠は削除されています。</p>
+              
+              <button
+                className="btn btn-outline"
+                style={{ marginTop: 12, backgroundColor: 'white' }}
+                onClick={() => handleRestoreShiftFrame(selectedDate)}
+              >
+                <Eye size={16} />
+                <span>シフト枠を復活させる</span>
+              </button>
+            </Card>
+          ) : (
+            <Card variant="elevated" style={styles.detailsCard}>
+              <div style={styles.shiftMeta}>
+                <span style={styles.timeLabel}>基本勤務時間帯:</span>
+                <span style={styles.timeVal}>16:15 〜 18:15</span>
+              </div>
+
+              <div style={styles.memberSection}>
+                <h4 style={styles.memberTitle}>
+                  担当メンバー ({activeShift?.memberNames.length || 0}名)
+                </h4>
+                
+                {activeShift && activeShift.memberNames.length > 0 ? (
+                  <div style={styles.memberList}>
+                    {activeShift.memberNames.map((name, idx) => (
+                      <div key={idx} style={styles.memberItem}>
+                        <div style={styles.avatar}>
+                          {name.charAt(0)}
+                        </div>
+                        <span style={styles.memberName}>{name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={styles.noMembers}>現在、このシフト枠に登録されているTA・教員はいません。自由に参加登録できます。</p>
+                )}
+              </div>
+
+              {/* アクションボタン */}
+              <div style={styles.actions}>
+                <button
+                  className={`btn ${isUserInShift(activeShift) ? 'btn-danger' : 'btn-primary'}`}
+                  style={{ flex: 1 }}
+                  onClick={() => handleToggleShift(selectedDate)}
+                >
+                  {isUserInShift(activeShift) ? (
+                    <>
+                      <UserMinus size={16} />
+                      <span>シフトから抜ける</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus size={16} />
+                      <span>このシフトに入る</span>
+                    </>
+                  )}
+                </button>
+
+                {/* シフト枠の削除機能（全員が管理者として実行可能） */}
+                <button
+                  className="btn btn-outline"
+                  style={{ padding: '10px' }}
+                  onClick={() => handleDeleteShiftFrame(selectedDate)}
+                  title="この日のシフト枠を削除（休館日設定）"
+                >
+                  <EyeOff size={16} color="var(--md-sys-color-error)" />
+                </button>
+              </div>
+            </Card>
+          )}
+        </>
+      ) : (
+        /* ====================================================================
+           【希望登録 ＆ 自動作成】タブの内容
+           ==================================================================== */
+        <div className="fade-in" style={styles.settingsTabWrapper}>
+          
+          {/* ① 希望シフト登録UI */}
+          <div style={styles.prefSection}>
+            <h3 style={styles.sectionTitle}>
+              <CalendarIcon size={18} color="var(--md-sys-color-primary)" />
+              <span>固定曜日の希望登録（毎週のベース曜日設定）</span>
+            </h3>
+            <p style={styles.prefDesc}>
+              ご自身が毎週固定で入りやすい曜日のスロットに、名前を追加してください。2名体制を基本とし、2名登録された曜日は自動的に交互（隔週）で割り当てられます。
+            </p>
+
+            <div style={styles.prefGrid}>
+              {['月曜日', '火曜日', '水曜日', '木曜日', '金曜日'].map((dayName, idx) => {
+                const dayOfWeek = idx + 1;
+                const pref = preferences.find(p => p.dayOfWeek === dayOfWeek) || { dayOfWeek, slot1: '', slot2: '' };
+                const formattedName = `${user.name} (${user.role === 'ta' ? 'TA' : '教員'})`;
+
+                return (
+                  <Card key={dayOfWeek} variant="outlined" style={styles.prefDayCard}>
+                    <h4 style={styles.prefDayTitle}>{dayName}</h4>
+                    <div style={styles.prefSlots}>
+                      
+                      {/* スロット1 */}
+                      <div style={styles.prefSlotRow}>
+                        <span style={styles.slotLabel}>枠 1:</span>
+                        {pref.slot1 ? (
+                          <div style={styles.slotUserBadge}>
+                            <span>{pref.slot1}</span>
+                            {pref.slot1 === formattedName && (
+                              <button 
+                                style={styles.slotRemoveBtn}
+                                onClick={() => handleTogglePreference(dayOfWeek, 1)}
+                              >
+                                <UserMinus size={14} />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <button 
+                            className="btn btn-outline"
+                            style={styles.slotAddBtn}
+                            onClick={() => handleTogglePreference(dayOfWeek, 1)}
+                          >
+                            <Plus size={12} />
+                            <span>希望を入れる</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* スロット2 */}
+                      <div style={styles.prefSlotRow}>
+                        <span style={styles.slotLabel}>枠 2:</span>
+                        {pref.slot2 ? (
+                          <div style={styles.slotUserBadge}>
+                            <span>{pref.slot2}</span>
+                            {pref.slot2 === formattedName && (
+                              <button 
+                                style={styles.slotRemoveBtn}
+                                onClick={() => handleTogglePreference(dayOfWeek, 2)}
+                              >
+                                <UserMinus size={14} />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <button 
+                            className="btn btn-outline"
+                            style={styles.slotAddBtn}
+                            onClick={() => handleTogglePreference(dayOfWeek, 2)}
+                          >
+                            <Plus size={12} />
+                            <span>希望を入れる</span>
+                          </button>
+                        )}
+                      </div>
+
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ② 休館日・テスト期間の簡易設定UI */}
+          <div style={styles.periodSection}>
+            <h3 style={styles.sectionTitle}>
+              <EyeOff size={18} color="var(--md-sys-color-primary)" />
+              <span>テスト期間・祝日・休館日の設定（管理者用）</span>
+            </h3>
+            
+            <Card variant="outlined" style={styles.periodFormCard}>
+              <form onSubmit={handleAddPeriod} style={styles.periodForm}>
+                <div style={styles.formRow}>
+                  <div className="form-group" style={{ flex: 2 }}>
+                    <label className="form-label">期間の名称</label>
+                    <input 
+                      type="text" 
+                      className="form-control"
+                      placeholder="例: 中間テスト, GW休館" 
+                      value={periodName}
+                      onChange={(e) => setPeriodName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">区分</label>
+                    <select 
+                      className="form-control"
+                      value={periodType}
+                      onChange={(e) => setPeriodType(e.target.value as any)}
+                    >
+                      <option value="exam">テスト期間</option>
+                      <option value="holiday">祝日・公休</option>
+                      <option value="other">その他臨時休館</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div style={styles.formRow}>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">開始日</label>
+                    <input 
+                      type="date" 
+                      className="form-control"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">終了日 (当日のみは開始日と同じ)</label>
+                    <input 
+                      type="date" 
+                      className="form-control"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                
+                <button type="submit" className="btn btn-secondary" style={{ marginTop: '8px' }}>
+                  <Plus size={16} />
+                  <span>休館期間を追加する</span>
+                </button>
+              </form>
+            </Card>
+
+            {/* 登録中の期間リスト */}
+            <h4 style={styles.subTitle}>登録済みの期間一覧 ({irregularPeriods.length}件)</h4>
+            <div style={styles.periodList}>
+              {irregularPeriods.map(p => (
+                <div key={p.id} style={styles.periodItem}>
+                  <div>
+                    <span style={{
+                      ...styles.periodBadge,
+                      backgroundColor: p.type === 'exam' ? 'var(--md-sys-color-error-container)' : 'var(--md-sys-color-primary-container)',
+                      color: p.type === 'exam' ? 'var(--md-sys-color-on-error-container)' : 'var(--md-sys-color-on-primary-container)',
+                    }}>
+                      {p.type === 'exam' ? 'テスト' : p.type === 'holiday' ? '祝日' : '臨時'}
+                    </span>
+                    <strong style={{ marginLeft: 8 }}>{p.name}</strong>
+                    <span style={{ marginLeft: 12, fontSize: '0.82rem', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                      {p.startDate} 〜 {p.endDate}
+                    </span>
+                  </div>
+                  <button 
+                    style={styles.deletePeriodBtn}
+                    onClick={() => handleDeletePeriod(p.id)}
+                  >
+                    <Trash2 size={16} color="var(--md-sys-color-error)" />
+                  </button>
+                </div>
+              ))}
+              {irregularPeriods.length === 0 && (
+                <p style={styles.emptyText}>登録されている休館期間はありません。</p>
               )}
-            </button>
-
-            {/* シフト枠の削除機能（全員が管理者として実行可能） */}
-            <button
-              className="btn btn-outline"
-              style={{ padding: '10px' }}
-              onClick={() => handleDeleteShiftFrame(selectedDate)}
-              title="この日のシフト枠を削除（休館日設定）"
-            >
-              <EyeOff size={16} color="var(--md-sys-color-error)" />
-            </button>
+            </div>
           </div>
-        </Card>
+
+          {/* ③ シフト一括自動割り当ての実行 */}
+          <div style={styles.generateSection}>
+            <h3 style={styles.sectionTitle}>
+              <Download size={18} color="var(--md-sys-color-primary)" />
+              <span>シフト一括自動作成</span>
+            </h3>
+            
+            <Card variant="filled" style={styles.generateCard}>
+              <p style={styles.generateDesc}>
+                設定された「固定曜日の希望」および「テスト期間・祝日」をもとに、**【本日から1ヶ月後（30日後）まで】**のシフトを自動で割り当てます。
+                2名登録されている曜日は、出現回数が完全に均等（交互トグル）になるよう日付順に並べて公平に配置されます。
+              </p>
+              <div style={styles.alertBox}>
+                <Info size={16} style={{ flexShrink: 0 }} />
+                <span>過去の日付や、すでにメンバーが手動で登録されている確定済みシフトは一切上書きされず保護されます。</span>
+              </div>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleAutoGenerate}
+                disabled={generating}
+                style={{ width: '100%', padding: '12px', fontSize: '1rem', marginTop: '12px' }}
+              >
+                {generating ? '自動割り当て処理中...' : '本日〜1ヶ月後のシフトを自動作成する'}
+              </button>
+            </Card>
+          </div>
+
+        </div>
       )}
     </div>
   );
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
+  tabContainer: {
+    display: 'flex',
+    borderBottom: '1px solid var(--md-sys-color-outline-variant)',
+    marginBottom: '20px',
+    gap: '8px',
+  },
+  tabButton: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '12px 8px',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '0.92rem',
+    transition: 'all 0.2s ease',
+  },
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '16px',
+    marginBottom: '12px',
     padding: '0 4px',
+    flexWrap: 'wrap',
+    gap: '8px',
   },
   title: {
     fontSize: '1.25rem',
@@ -351,10 +855,32 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: 'var(--md-sys-color-on-surface)',
     fontFamily: 'var(--font-family-title)',
   },
-  monthSelector: {
+  headerActions: {
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
+  },
+  iconActionBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    backgroundColor: 'var(--md-sys-color-surface-container-high)',
+    color: 'var(--md-sys-color-on-surface)',
+    border: '1px solid var(--md-sys-color-outline-variant)',
+    borderRadius: '20px',
+    padding: '6px 12px',
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  btnLabel: {
+    display: 'inline',
+  },
+  monthSelector: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
   },
   arrowBtn: {
     background: 'none',
@@ -372,18 +898,23 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '0.95rem',
     fontWeight: 700,
     color: 'var(--md-sys-color-on-surface)',
-    minWidth: '90px',
+    minWidth: '85px',
     textAlign: 'center',
     fontFamily: 'var(--font-family-base)',
   },
+  calendarCaptureWrapper: {
+    backgroundColor: 'white',
+    padding: '4px',
+    borderRadius: 'var(--md-shape-corner-medium)',
+  },
   calendarCard: {
-    padding: '12px 8px',
-    marginBottom: '20px',
+    padding: '8px 4px',
+    marginBottom: '16px',
   },
   weekHeader: {
     display: 'flex',
     width: '100%',
-    marginBottom: '8px',
+    marginBottom: '6px',
   },
   weekCell: {
     flex: 1,
@@ -398,67 +929,84 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: '100%',
   },
   dayCell: {
-    width: '14.28%', // 7等分
-    aspectRatio: '1', // 正方形
+    width: '14.28%', // 7曜日均等
+    aspectRatio: '0.85', // 縦長の長方形にしてメンバー名を表示するスペースを確保
     background: 'none',
-    border: 'none',
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: '50%',
-    fontSize: '0.85rem',
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+    padding: '6px 4px',
     position: 'relative',
-    margin: '2px 0',
-    transition: 'background-color 0.15s, transform 0.1s',
+    borderRadius: '8px',
+    transition: 'background-color 0.15s, border-color 0.15s',
+  },
+  cellHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
   },
   dayNumber: {
-    marginTop: '2px',
+    fontSize: '0.82rem',
   },
-  dotContainer: {
-    height: '6px',
+  statusMiniLabel: {
+    fontSize: '0.55rem',
+    padding: '1px 3px',
+    borderRadius: '3px',
+    transform: 'scale(0.85)',
+    transformOrigin: 'right center',
+    maxWidth: '28px',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    fontWeight: 600,
+  },
+  cellMembers: {
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: 'column',
+    gap: '2px',
+    width: '100%',
+    marginTop: '4px',
+    overflow: 'hidden',
+  },
+  lastNameBadge: {
+    fontSize: '0.68rem',
+    backgroundColor: 'var(--md-sys-color-primary-container)',
+    color: 'var(--md-sys-color-on-primary-container)',
+    padding: '2px 4px',
+    borderRadius: '4px',
+    textAlign: 'center',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  emptySlotLabel: {
+    fontSize: '0.62rem',
+    textAlign: 'center',
+    fontWeight: 600,
     marginTop: '2px',
-    position: 'absolute',
-    bottom: '4px',
-  },
-  activeDot: {
-    width: '5px',
-    height: '5px',
-    borderRadius: '50%',
-    backgroundColor: 'var(--md-sys-color-primary)',
-  },
-  emptyDot: {
-    width: '5px',
-    height: '5px',
-    borderRadius: '50%',
-    backgroundColor: '#dadce0',
-  },
-  deletedDot: {
-    width: '5px',
-    height: '5px',
-    borderRadius: '50%',
-    backgroundColor: 'var(--md-sys-color-error)',
+    opacity: 0.85,
   },
   detailsTitle: {
     fontSize: '0.95rem',
     fontWeight: 700,
     color: 'var(--md-sys-color-on-surface-variant)',
-    margin: '0 0 12px 4px',
+    margin: '0 0 10px 4px',
   },
   detailsCard: {
-    padding: '20px',
+    padding: '16px',
   },
   shiftMeta: {
     display: 'flex',
     gap: '8px',
     fontSize: '0.88rem',
-    paddingBottom: '12px',
-    borderBottom: '1px solid var(--md-sys-color-outline)',
-    marginBottom: '16px',
+    paddingBottom: '10px',
+    borderBottom: '1px solid var(--md-sys-color-outline-variant)',
+    marginBottom: '12px',
   },
   timeLabel: {
     color: 'var(--md-sys-color-on-surface-variant)',
@@ -469,13 +1017,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 700,
   },
   memberSection: {
-    marginBottom: '20px',
+    marginBottom: '16px',
   },
   memberTitle: {
-    fontSize: '0.88rem',
+    fontSize: '0.85rem',
     fontWeight: 700,
     color: 'var(--md-sys-color-on-surface)',
-    marginBottom: '12px',
+    marginBottom: '10px',
   },
   memberList: {
     display: 'flex',
@@ -487,20 +1035,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: 'center',
     gap: '10px',
     padding: '8px 12px',
-    backgroundColor: 'var(--md-sys-color-background)',
+    backgroundColor: 'var(--md-sys-color-surface-container-low)',
     borderRadius: 'var(--md-shape-corner-medium)',
-    border: '1px solid var(--md-sys-color-outline)',
+    border: '1px solid var(--md-sys-color-outline-variant)',
   },
   avatar: {
-    width: '28px',
-    height: '28px',
+    width: '26px',
+    height: '26px',
     borderRadius: '50%',
     backgroundColor: 'var(--md-sys-color-primary-container)',
     color: 'var(--md-sys-color-on-primary-container)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '0.8rem',
+    fontSize: '0.78rem',
     fontWeight: 700,
   },
   memberName: {
@@ -509,7 +1057,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: 'var(--md-sys-color-on-surface)',
   },
   noMembers: {
-    fontSize: '0.82rem',
+    fontSize: '0.8rem',
     color: 'var(--md-sys-color-on-surface-variant)',
     lineHeight: '1.4',
     textAlign: 'center',
@@ -517,24 +1065,24 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   actions: {
     display: 'flex',
-    gap: '10px',
+    gap: '8px',
     width: '100%',
   },
   noShiftInfo: {
     display: 'flex',
     alignItems: 'center',
-    padding: '16px',
+    padding: '14px',
     color: 'var(--md-sys-color-on-surface-variant)',
     fontSize: '0.85rem',
     lineHeight: '1.45',
   },
   deletedInfoCard: {
-    padding: '20px',
+    padding: '16px',
     backgroundColor: 'var(--md-sys-color-error-container)',
-    border: '1px solid #fad2cf',
+    border: '1px solid rgba(217, 48, 37, 0.1)',
   },
   infoText: {
-    fontSize: '0.85rem',
+    fontSize: '0.82rem',
     color: 'var(--md-sys-color-on-error-container)',
     lineHeight: '1.4',
   },
@@ -551,5 +1099,170 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '0.85rem',
     color: 'var(--md-sys-color-on-surface-variant)',
     fontWeight: 500,
+  },
+
+  // 希望設定タブ用のスタイル
+  settingsTabWrapper: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '24px',
+  },
+  prefSection: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  prefDesc: {
+    fontSize: '0.82rem',
+    color: 'var(--md-sys-color-on-surface-variant)',
+    lineHeight: 1.45,
+    margin: '-4px 0 16px 4px',
+  },
+  prefGrid: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  prefDayCard: {
+    padding: '14px',
+  },
+  prefDayTitle: {
+    fontSize: '0.92rem',
+    fontWeight: 700,
+    color: 'var(--md-sys-color-primary)',
+    marginBottom: '10px',
+    borderLeft: '3px solid var(--md-sys-color-primary)',
+    paddingLeft: '8px',
+  },
+  prefSlots: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  prefSlotRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'var(--md-sys-color-surface-container-low)',
+    padding: '6px 12px',
+    borderRadius: '8px',
+    minHeight: '38px',
+  },
+  slotLabel: {
+    fontSize: '0.82rem',
+    color: 'var(--md-sys-color-on-surface-variant)',
+    fontWeight: 600,
+    width: '35px',
+  },
+  slotUserBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '0.85rem',
+    fontWeight: 600,
+    backgroundColor: 'var(--md-sys-color-primary-container)',
+    color: 'var(--md-sys-color-on-primary-container)',
+    padding: '4px 10px',
+    borderRadius: '12px',
+  },
+  slotRemoveBtn: {
+    border: 'none',
+    background: 'none',
+    color: 'var(--md-sys-color-error)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    padding: '2px',
+  },
+  slotAddBtn: {
+    padding: '4px 10px',
+    fontSize: '0.78rem',
+    height: '26px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    borderRadius: '12px',
+  },
+  periodSection: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  periodFormCard: {
+    padding: '16px',
+    marginBottom: '16px',
+  },
+  periodForm: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  formRow: {
+    display: 'flex',
+    gap: '12px',
+  },
+  subTitle: {
+    fontSize: '0.88rem',
+    fontWeight: 700,
+    color: 'var(--md-sys-color-on-surface)',
+    margin: '12px 0 8px 4px',
+  },
+  periodList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  periodItem: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'var(--md-sys-color-surface-container-low)',
+    border: '1px solid var(--md-sys-color-outline-variant)',
+    borderRadius: '8px',
+    padding: '8px 12px',
+  },
+  periodBadge: {
+    fontSize: '0.68rem',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontWeight: 700,
+  },
+  deletePeriodBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: '0.8rem',
+    color: 'var(--md-sys-color-on-surface-variant)',
+    textAlign: 'center',
+    padding: '12px 0',
+  },
+  generateSection: {
+    display: 'flex',
+    flexDirection: 'column',
+    marginBottom: '20px',
+  },
+  generateCard: {
+    padding: '16px',
+  },
+  generateDesc: {
+    fontSize: '0.82rem',
+    color: 'var(--md-sys-color-on-surface-variant)',
+    lineHeight: 1.5,
+    marginBottom: '12px',
+  },
+  alertBox: {
+    display: 'flex',
+    gap: '8px',
+    backgroundColor: 'rgba(249, 171, 0, 0.08)',
+    color: '#b06000',
+    fontSize: '0.78rem',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    alignItems: 'center',
+    lineHeight: 1.4,
   }
 };

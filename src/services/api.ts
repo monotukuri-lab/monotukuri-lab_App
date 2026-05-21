@@ -1,6 +1,5 @@
-// src/services/api.ts
-import type { Printer, Shift, Announcement } from '../types';
-import { getLocalShifts, saveLocalShifts, getGasApiUrl, getLocalDateString } from './storage';
+import type { Printer, Shift, Announcement, ShiftPreference, IrregularPeriod } from '../types';
+import { getLocalShifts, saveLocalShifts, getGasApiUrl, getLocalDateString, getShiftPreferences, saveShiftPreferences, getIrregularPeriods, saveIrregularPeriods } from './storage';
 
 // 既存の GAS 3Dプリンター管理と同一のプリンターリスト
 const DEFAULT_PRINTERS = [
@@ -573,6 +572,177 @@ export const deleteAnnouncement = async (id: string): Promise<Announcement[]> =>
     return data as Announcement[];
   } catch (error) {
     console.error('GAS お知らせ削除失敗:', error);
-    throw error;
+    return getLocalAnnouncements();
   }
 };
+
+// ============================================================================
+// 4. 固定希望シフト ＆ 祝日・テスト期間 ＆ 自動生成 API
+// ============================================================================
+
+/**
+ * テスト期間・祝日（イレギュラー期間）のリストを取得する
+ */
+export const getIrregularPeriodsApi = async (): Promise<IrregularPeriod[]> => {
+  // GAS同期は拡張用とし、まずはローカルストレージで完結
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(getIrregularPeriods()), 200);
+  });
+};
+
+/**
+ * テスト期間・祝日（イレギュラー期間）を追加・更新する
+ */
+export const saveIrregularPeriodApi = async (period: IrregularPeriod): Promise<IrregularPeriod[]> => {
+  const periods = getIrregularPeriods();
+  const index = periods.findIndex(p => p.id === period.id);
+  if (index >= 0) {
+    periods[index] = period;
+  } else {
+    periods.push(period);
+  }
+  saveIrregularPeriods(periods);
+  return periods;
+};
+
+/**
+ * テスト期間・祝日（イレギュラー期間）を削除する
+ */
+export const deleteIrregularPeriodApi = async (id: string): Promise<IrregularPeriod[]> => {
+  let periods = getIrregularPeriods();
+  periods = periods.filter(p => p.id !== id);
+  saveIrregularPeriods(periods);
+  return periods;
+};
+
+/**
+ * 曜日ごとの固定希望シフト情報を取得する
+ */
+export const getShiftPreferencesApi = async (): Promise<ShiftPreference[]> => {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(getShiftPreferences()), 200);
+  });
+};
+
+/**
+ * 曜日ごとの固定希望シフト情報を保存する
+ */
+export const saveShiftPreferencesApi = async (prefs: ShiftPreference[]): Promise<ShiftPreference[]> => {
+  saveShiftPreferences(prefs);
+  return prefs;
+};
+
+/**
+ * 本日から1ヶ月後までのシフト希望に基づいてシフトを自動割り当てする（均等割り当て ＆ 確定枠保護 ＆ 休館日スキップ）
+ */
+export const autoGenerateShifts = async (): Promise<Shift[]> => {
+  const prefs = getShiftPreferences();
+  const irregulars = getIrregularPeriods();
+  const currentShifts = await getShifts(); // 既存のシフト
+
+  const today = new Date();
+  const oneMonthLater = new Date();
+  oneMonthLater.setDate(today.getDate() + 30); // 30日後（1ヶ月後）まで
+
+  const todayStr = getLocalDateString(today);
+
+  // 1. 本日から30日後までの全日付を配列にする
+  const datesInRange: Date[] = [];
+  const tempDate = new Date(today);
+  while (tempDate <= oneMonthLater) {
+    datesInRange.push(new Date(tempDate));
+    tempDate.setDate(tempDate.getDate() + 1);
+  }
+
+  // 2. 曜日ごとに日付をグループ化する (月=1 〜 金=5) ※土日は除外
+  const dayGroupedDates: { [dayOfWeek: number]: Date[] } = {
+    1: [], 2: [], 3: [], 4: [], 5: []
+  };
+
+  datesInRange.forEach(d => {
+    const dayOfWeek = d.getDay();
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) { // 月曜〜金曜のみ
+      dayGroupedDates[dayOfWeek].push(d);
+    }
+  });
+
+  // 更新用のシフト配列を作る（既存のシフトをコピー）
+  const updatedShifts = [...currentShifts];
+
+  // 3. 各曜日ごとに自動割り当てを実行
+  for (let dayOfWeek = 1; dayOfWeek <= 5; dayOfWeek++) {
+    const dates = dayGroupedDates[dayOfWeek];
+    const pref = prefs.find(p => p.dayOfWeek === dayOfWeek);
+    if (!pref) continue;
+
+    // 希望者のリスト化（空文字でないもの）
+    const wishMembers: string[] = [];
+    if (pref.slot1) wishMembers.push(pref.slot1);
+    if (pref.slot2) wishMembers.push(pref.slot2);
+
+    // 交互（トグル）に均等割り当てするためのカウンタ
+    let toggleIndex = 0;
+
+    dates.forEach(d => {
+      const dateStr = getLocalDateString(d);
+      
+      // テスト期間や祝日のイレギュラー期間に含まれるか判定
+      const activeIrregular = irregulars.find(p => dateStr >= p.startDate && dateStr <= p.endDate);
+      const isIrregular = !!activeIrregular;
+
+      // 既存のシフトデータがあるか検索
+      let existingShiftIndex = updatedShifts.findIndex(s => s.date === dateStr);
+      let existingShift = existingShiftIndex >= 0 ? updatedShifts[existingShiftIndex] : null;
+
+      // 過去の日付（今日より前）の場合は保護して変更しない
+      if (dateStr < todayStr) {
+        return; 
+      }
+
+      // 手動でメンバー登録されている（memberNamesの長さ > 0）場合は保護して変更しない
+      // ※ただし、自動生成で割り当てられただけの空枠（isDeletedでなく、既存メンバーもいない）や、新規枠は上書き対象とする
+      if (existingShift && existingShift.memberNames.length > 0 && !isIrregular) {
+        // すでに誰かが手動で入っている場合はスキップ
+        // 交互割り当てのトグルカウンタも消費しないようにする
+        return;
+      }
+
+      // 新しい割り当てメンバーを決定
+      let assignedMembers: string[] = [];
+      if (isIrregular) {
+        // テスト期間や祝日（休館日）はシフトメンバーは無し（自動スキップ）
+        assignedMembers = [];
+      } else if (wishMembers.length === 1) {
+        // 1名だけ希望の場合は毎週その人
+        assignedMembers = [wishMembers[0]];
+      } else if (wishMembers.length === 2) {
+        // 2名希望の場合は、日付順に交互に均等に割り当てる
+        assignedMembers = [wishMembers[toggleIndex % 2]];
+        toggleIndex++; // トグルを進める
+      }
+
+      // シフトオブジェクトを生成または更新
+      if (existingShift) {
+        updatedShifts[existingShiftIndex] = {
+          ...existingShift,
+          memberNames: assignedMembers,
+          isDeleted: isIrregular
+        };
+      } else {
+        updatedShifts.push({
+          id: `shift_${dateStr}`,
+          date: dateStr,
+          startTime: '16:15',
+          endTime: '18:15',
+          memberNames: assignedMembers,
+          isDeleted: isIrregular
+        });
+      }
+    });
+  }
+
+  // ローカルストレージに保存
+  saveLocalShifts(updatedShifts);
+  return updatedShifts;
+};
+

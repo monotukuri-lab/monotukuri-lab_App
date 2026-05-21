@@ -1,10 +1,11 @@
-// src/services/storage.ts
-import type { User, Shift } from '../types';
+import type { User, Shift, ShiftPreference, IrregularPeriod } from '../types';
 
 const KEYS = {
   USER: 'mtl_app_user',
   SHIFTS: 'mtl_app_shifts',
   GAS_API_URL: 'mtl_app_gas_url',
+  PREFERENCES: 'mtl_app_shift_prefs',
+  IRREGULAR_PERIODS: 'mtl_app_irregular_periods',
 };
 
 /**
@@ -16,6 +17,93 @@ export const getLocalDateString = (date: Date = new Date()): string => {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 };
+
+/**
+ * フルネーム（カッコ書きの役職等含む）から苗字（姓）のみを抽出する
+ * 例: "舞鶴 太郎 (TA)" -> "舞鶴"
+ * 例: "高専　花子（教員）" -> "高専"
+ */
+export const getLastName = (fullName: string): string => {
+  if (!fullName) return '';
+  // 1. カッコ書き（半角・全角）とその中身を除去
+  let cleanName = fullName.replace(/\s*[\(（].*?[\)）]/g, '');
+  // 2. 全角・半角スペースで分割して最初の要素（苗字）を取得
+  const parts = cleanName.split(/[\s　]+/);
+  return parts[0] || cleanName;
+};
+
+
+/**
+ * 曜日ごとの固定希望シフト情報を取得する (初期データ生成付き)
+ */
+export const getShiftPreferences = (): ShiftPreference[] => {
+  const data = localStorage.getItem(KEYS.PREFERENCES);
+  if (!data) {
+    // 初期状態 (月曜=1 〜 金曜=5 すべて空)
+    const initialPrefs: ShiftPreference[] = [
+      { dayOfWeek: 1, slot1: '', slot2: '' },
+      { dayOfWeek: 2, slot1: '', slot2: '' },
+      { dayOfWeek: 3, slot1: '', slot2: '' },
+      { dayOfWeek: 4, slot1: '', slot2: '' },
+      { dayOfWeek: 5, slot1: '', slot2: '' },
+    ];
+    saveShiftPreferences(initialPrefs);
+    return initialPrefs;
+  }
+  try {
+    return JSON.parse(data) as ShiftPreference[];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * 曜日ごとの固定希望シフト情報を保存する
+ */
+export const saveShiftPreferences = (prefs: ShiftPreference[]): void => {
+  localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(prefs));
+};
+
+/**
+ * テスト期間や祝日（イレギュラー期間）のリストを取得する (初期データ生成付き)
+ */
+export const getIrregularPeriods = (): IrregularPeriod[] => {
+  const data = localStorage.getItem(KEYS.IRREGULAR_PERIODS);
+  if (!data) {
+    // 舞鶴高専の中間テスト期間や祝日の初期モックデータ
+    const initialPeriods: IrregularPeriod[] = [
+      {
+        id: 'irr_1',
+        name: '中間試験 (休館)',
+        startDate: '2026-05-25',
+        endDate: '2026-05-28',
+        type: 'exam'
+      },
+      {
+        id: 'irr_2',
+        name: '開校記念日 (休館)',
+        startDate: '2026-06-08',
+        endDate: '2026-06-08',
+        type: 'holiday'
+      }
+    ];
+    saveIrregularPeriods(initialPeriods);
+    return initialPeriods;
+  }
+  try {
+    return JSON.parse(data) as IrregularPeriod[];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * テスト期間や祝日（イレギュラー期間）のリストを保存する
+ */
+export const saveIrregularPeriods = (periods: IrregularPeriod[]): void => {
+  localStorage.setItem(KEYS.IRREGULAR_PERIODS, JSON.stringify(periods));
+};
+
 
 /**
  * ログインユーザー情報を保存する
