@@ -1,12 +1,12 @@
 // src/views/Shift.tsx
 import React, { useEffect, useState } from 'react';
-import { 
-  ChevronLeft, ChevronRight, UserPlus, UserMinus, EyeOff, Eye, Info, 
-  Download, Calendar as CalendarIcon, Settings, Plus, Trash2 
+import {
+  ChevronLeft, ChevronRight, UserPlus, UserMinus, EyeOff, Eye, Info,
+  Download, Calendar as CalendarIcon, Settings, Plus, Trash2
 } from 'lucide-react';
 import type { User, Shift as ShiftType, ShiftPreference, IrregularPeriod } from '../types';
 import { Card } from '../components/Card';
-import { 
+import {
   getShifts, joinShift, leaveShift, deleteShiftFrame, restoreShiftFrame,
   getIrregularPeriodsApi, saveIrregularPeriodApi, deleteIrregularPeriodApi,
   getShiftPreferencesApi, saveShiftPreferencesApi, autoGenerateShifts
@@ -28,7 +28,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
   const [activeTab, setActiveTab] = useState<'calendar' | 'preferences'>('calendar');
   const [preferences, setPreferences] = useState<ShiftPreference[]>([]);
   const [irregularPeriods, setIrregularPeriods] = useState<IrregularPeriod[]>([]);
-  
+
   // テスト期間/祝日登録用フォーム状態
   const [periodName, setPeriodName] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -48,7 +48,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
         loadShifts(),
         loadPreferencesAndPeriods()
       ]);
-      
+
       // 今日を初期選択日とする
       const todayStr = getLocalDateString();
       setSelectedDate(todayStr);
@@ -297,7 +297,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
 
   // 【希望シフト自動反映の実行処理】
   const handleAutoGenerate = async () => {
-    const confirmMessage = 
+    const confirmMessage =
       '本日から1ヶ月後（30日後）までの期間を対象に、登録された希望シフトに基づいた自動割り当てを実行します。\n\n' +
       '※すでに手動でメンバーが登録されている日、過去の日付、および登録済みの休館日（テスト期間・祝日）は上書きされず保護されます。\n\n' +
       '実行してよろしいですか？';
@@ -376,7 +376,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
     <div className="fade-in">
       {/* タブ切り替えトグル */}
       <div style={styles.tabContainer}>
-        <button 
+        <button
           style={{
             ...styles.tabButton,
             borderBottom: activeTab === 'calendar' ? '3px solid var(--md-sys-color-primary)' : 'none',
@@ -388,7 +388,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
           <CalendarIcon size={18} />
           <span>シフトカレンダー</span>
         </button>
-        <button 
+        <button
           style={{
             ...styles.tabButton,
             borderBottom: activeTab === 'preferences' ? '3px solid var(--md-sys-color-primary)' : 'none',
@@ -412,7 +412,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                 <Download size={18} />
                 <span style={styles.btnLabel}>画像保存</span>
               </button>
-              
+
               <div style={styles.monthSelector}>
                 <button style={styles.arrowBtn} onClick={handlePrevMonth}>
                   <ChevronLeft size={20} />
@@ -432,8 +432,8 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
             <Card variant="outlined" style={styles.calendarCard}>
               <div style={styles.weekHeader}>
                 {['日', '月', '火', '水', '木', '金', '土'].map((w, idx) => (
-                  <span 
-                    key={w} 
+                  <span
+                    key={w}
                     style={{
                       ...styles.weekCell,
                       color: idx === 0 ? 'var(--md-sys-color-error)' : idx === 6 ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'
@@ -452,7 +452,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                   const dayOfWeek = day.date.getDay();
                   const isToday = getLocalDateString() === day.dateString;
                   const isHoliday = dayOfWeek === 0 || dayOfWeek === 6;
-                  
+
                   // イレギュラー期間（祝日やテスト期間）の判定
                   const activePeriod = irregularPeriods.find(p => day.dateString >= p.startDate && day.dateString <= p.endDate);
                   const isClosed = activePeriod ? activePeriod.isOpen === false : false;
@@ -528,7 +528,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                         }}>
                           {dayNum}
                         </span>
-                        
+
                         {statusLabel && (
                           <span style={{
                             ...styles.statusMiniLabel,
@@ -539,7 +539,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                           </span>
                         )}
                       </div>
-                      
+
                       {/* セル内メンバー名（苗字）の直接表示 */}
                       <div style={styles.cellMembers}>
                         {shift && !shift.isDeleted && !isClosed && !isHoliday && shift.memberNames.map((name, idx) => (
@@ -547,7 +547,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                             {getLastName(name)}
                           </span>
                         ))}
-                        
+
                         {/* 平日かつ開館日かつ登録者数が0名（空き）の場合、それを明示 */}
                         {!isHoliday && !isClosed && (!shift || shift.memberNames.length === 0) && !isFrameDeleted && (
                           <span style={{
@@ -594,7 +594,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                 </h4>
               </div>
               <p style={styles.infoText}>祝日や試験等のため、この日の開館シフト枠は削除されています。</p>
-              
+
               <button
                 className="btn btn-outline"
                 style={{ marginTop: 12, backgroundColor: 'white' }}
@@ -615,7 +615,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                 <h4 style={styles.memberTitle}>
                   担当メンバー ({activeShift?.memberNames.length || 0}名)
                 </h4>
-                
+
                 {activeShift && activeShift.memberNames.length > 0 ? (
                   <div style={styles.memberList}>
                     {activeShift.memberNames.map((name, idx) => (
@@ -670,7 +670,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
            【希望登録 ＆ 自動作成】タブの内容
            ==================================================================== */
         <div className="fade-in" style={styles.settingsTabWrapper}>
-          
+
           {/* ① 希望シフト登録UI */}
           <div style={styles.prefSection}>
             <h3 style={styles.sectionTitle}>
@@ -691,7 +691,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                   <Card key={dayOfWeek} variant="outlined" style={styles.prefDayCard}>
                     <h4 style={styles.prefDayTitle}>{dayName}</h4>
                     <div style={styles.prefSlots}>
-                      
+
                       {/* スロット1 */}
                       <div style={styles.prefSlotRow}>
                         <span style={styles.slotLabel}>枠 1:</span>
@@ -699,7 +699,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                           <div style={styles.slotUserBadge}>
                             <span>{pref.slot1}</span>
                             {pref.slot1 === formattedName && (
-                              <button 
+                              <button
                                 style={styles.slotRemoveBtn}
                                 onClick={() => handleTogglePreference(dayOfWeek, 1)}
                               >
@@ -708,7 +708,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                             )}
                           </div>
                         ) : (
-                          <button 
+                          <button
                             className="btn btn-outline"
                             style={styles.slotAddBtn}
                             onClick={() => handleTogglePreference(dayOfWeek, 1)}
@@ -726,7 +726,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                           <div style={styles.slotUserBadge}>
                             <span>{pref.slot2}</span>
                             {pref.slot2 === formattedName && (
-                              <button 
+                              <button
                                 style={styles.slotRemoveBtn}
                                 onClick={() => handleTogglePreference(dayOfWeek, 2)}
                               >
@@ -735,7 +735,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                             )}
                           </div>
                         ) : (
-                          <button 
+                          <button
                             className="btn btn-outline"
                             style={styles.slotAddBtn}
                             onClick={() => handleTogglePreference(dayOfWeek, 2)}
@@ -759,16 +759,16 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
               <EyeOff size={18} color="var(--md-sys-color-primary)" />
               <span>テスト期間・祝日・休館日の設定（管理者用）</span>
             </h3>
-            
+
             <Card variant="outlined" style={styles.periodFormCard}>
               <form onSubmit={handleAddPeriod} style={styles.periodForm}>
                 <div style={styles.formRow}>
                   <div className="form-group" style={{ flex: '2 1 180px' }}>
                     <label className="form-label">期間の名称</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       className="form-control"
-                      placeholder="例: 中間テスト, プリンター講習会" 
+                      placeholder="例: 中間テスト, プリンター講習会"
                       value={periodName}
                       onChange={(e) => setPeriodName(e.target.value)}
                       required
@@ -776,7 +776,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                   </div>
                   <div className="form-group" style={{ flex: '1 1 100px' }}>
                     <label className="form-label">区分</label>
-                    <select 
+                    <select
                       className="form-control"
                       value={periodType}
                       onChange={(e) => setPeriodType(e.target.value as any)}
@@ -787,12 +787,12 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                     </select>
                   </div>
                 </div>
-                
+
                 <div style={styles.formRow}>
                   <div className="form-group" style={{ flex: '1 1 150px' }}>
                     <label className="form-label">開始日</label>
-                    <input 
-                      type="date" 
+                    <input
+                      type="date"
                       className="form-control"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
@@ -800,9 +800,9 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                     />
                   </div>
                   <div className="form-group" style={{ flex: '1 1 150px' }}>
-                    <label className="form-label">終了日 (当日のみは開始日と同じ)</label>
-                    <input 
-                      type="date" 
+                    <label className="form-label">終了日</label>
+                    <input
+                      type="date"
                       className="form-control"
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
@@ -816,18 +816,18 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                     <label className="form-label">開館ステータス</label>
                     <div style={{ display: 'flex', gap: '20px', marginTop: '6px', flexWrap: 'wrap' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>
-                        <input 
-                          type="radio" 
-                          name="periodIsOpen" 
+                        <input
+                          type="radio"
+                          name="periodIsOpen"
                           checked={periodIsOpen === false}
                           onChange={() => setPeriodIsOpen(false)}
                         />
                         <span>休館（自動シフト対象外・既存シフトクリア）</span>
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 500, color: 'var(--md-sys-color-on-surface)' }}>
-                        <input 
-                          type="radio" 
-                          name="periodIsOpen" 
+                        <input
+                          type="radio"
+                          name="periodIsOpen"
                           checked={periodIsOpen === true}
                           onChange={() => setPeriodIsOpen(true)}
                         />
@@ -836,7 +836,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                     </div>
                   </div>
                 </div>
-                
+
                 <button type="submit" className="btn btn-secondary" style={{ marginTop: '8px' }}>
                   <Plus size={16} />
                   <span>期間予定を追加する</span>
@@ -863,7 +863,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                       {p.startDate} 〜 {p.endDate}
                     </span>
                   </div>
-                  <button 
+                  <button
                     style={styles.deletePeriodBtn}
                     onClick={() => handleDeletePeriod(p.id)}
                   >
@@ -883,7 +883,7 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
               <Download size={18} color="var(--md-sys-color-primary)" />
               <span>シフト一括自動作成</span>
             </h3>
-            
+
             <Card variant="filled" style={styles.generateCard}>
               <p style={styles.generateDesc}>
                 設定された「固定曜日の希望」および「テスト期間・祝日」をもとに、**【本日から1ヶ月後（30日後）まで】**のシフトを自動で割り当てます。
@@ -893,25 +893,25 @@ export const Shift: React.FC<ShiftProps> = ({ user }) => {
                 <Info size={16} style={{ flexShrink: 0 }} />
                 <span>過去の日付や、すでにメンバーが手動で登録されている確定済みシフトは一切上書きされず保護されます。</span>
               </div>
-              
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
-                <button 
-                  className="btn btn-primary" 
+                <button
+                  className="btn btn-primary"
                   onClick={handleAutoGenerate}
                   disabled={generating}
                   style={{ width: '100%', padding: '12px', fontSize: '1rem' }}
                 >
                   {generating ? '自動割り当て処理中...' : '本日〜1ヶ月後のシフトを自動作成する'}
                 </button>
-                <button 
-                  className="btn btn-outline" 
+                <button
+                  className="btn btn-outline"
                   onClick={handleForceOverwriteGenerate}
                   disabled={generating}
-                  style={{ 
-                    width: '100%', 
-                    padding: '8px', 
-                    fontSize: '0.85rem', 
-                    borderColor: 'var(--md-sys-color-error)', 
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    fontSize: '0.85rem',
+                    borderColor: 'var(--md-sys-color-error)',
                     color: 'var(--md-sys-color-error)',
                     backgroundColor: 'transparent'
                   }}
