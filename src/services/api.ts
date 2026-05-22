@@ -584,16 +584,37 @@ export const deleteAnnouncement = async (id: string): Promise<Announcement[]> =>
  * テスト期間・祝日（イレギュラー期間）のリストを取得する
  */
 export const getIrregularPeriodsApi = async (): Promise<IrregularPeriod[]> => {
-  // GAS同期は拡張用とし、まずはローカルストレージで完結
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(getIrregularPeriods()), 200);
-  });
+  const gasUrl = getGasApiUrl();
+
+  if (!gasUrl) {
+    // GASのURLが設定されていない場合はローカルストレージのモックデータを返す
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(getIrregularPeriods()), 200);
+    });
+  }
+
+  try {
+    const response = await fetch(`${gasUrl}?action=getIrregularPeriods`);
+    if (!response.ok) throw new Error('Network response was not ok');
+    const data = await response.json();
+    
+    // スプレッドシート側のデータでローカルストレージも同期
+    const periods = data as IrregularPeriod[];
+    saveIrregularPeriods(periods);
+    return periods;
+  } catch (error) {
+    console.warn('GAS 特定予定取得失敗。ローカルデータにフォールバックします:', error);
+    return getIrregularPeriods();
+  }
 };
 
 /**
  * テスト期間・祝日（イレギュラー期間）を追加・更新する
  */
 export const saveIrregularPeriodApi = async (period: IrregularPeriod): Promise<IrregularPeriod[]> => {
+  const gasUrl = getGasApiUrl();
+
+  // 1. ローカル側の状態を即座に更新（GAS無効時および通信失敗時のフォールバック用）
   const periods = getIrregularPeriods();
   const index = periods.findIndex(p => p.id === period.id);
   if (index >= 0) {
@@ -603,7 +624,7 @@ export const saveIrregularPeriodApi = async (period: IrregularPeriod): Promise<I
   }
   saveIrregularPeriods(periods);
 
-  // 休館（isOpen === false）が新しく追加・更新された場合、その範囲内の既存確定シフトメンバーを強制削除
+  // 休館（isOpen === false）が新しく追加・更新された場合、その範囲内の既存確定シフトメンバーをローカルでもクリアする
   if (period.isOpen === false) {
     const shifts = getLocalShifts();
     const todayStr = getLocalDateString(new Date());
@@ -623,34 +644,115 @@ export const saveIrregularPeriodApi = async (period: IrregularPeriod): Promise<I
     }
   }
 
-  return periods;
+  if (!gasUrl) {
+    return periods;
+  }
+
+  try {
+    // GASへの同期保存リクエスト
+    const query = new URLSearchParams({
+      action: 'saveIrregularPeriod',
+      periodJson: JSON.stringify(period)
+    });
+    const response = await fetch(`${gasUrl}?${query.toString()}`);
+    if (!response.ok) throw new Error('Network response was not ok');
+    const data = await response.json() as IrregularPeriod[];
+    
+    // GASから取得した最新の全体リストでローカルストレージを再上書き（完全同期）
+    saveIrregularPeriods(data);
+    return data;
+  } catch (error) {
+    console.error('GAS 特定予定保存失敗。ローカル側のみ保存されました:', error);
+    return periods;
+  }
 };
 
 /**
  * テスト期間・祝日（イレギュラー期間）を削除する
  */
 export const deleteIrregularPeriodApi = async (id: string): Promise<IrregularPeriod[]> => {
+  const gasUrl = getGasApiUrl();
+
+  // 1. ローカル側を即座に更新
   let periods = getIrregularPeriods();
   periods = periods.filter(p => p.id !== id);
   saveIrregularPeriods(periods);
-  return periods;
+
+  if (!gasUrl) {
+    return periods;
+  }
+
+  try {
+    const query = new URLSearchParams({
+      action: 'deleteIrregularPeriod',
+      id: id
+    });
+    const response = await fetch(`${gasUrl}?${query.toString()}`);
+    if (!response.ok) throw new Error('Network response was not ok');
+    const data = await response.json() as IrregularPeriod[];
+    
+    saveIrregularPeriods(data);
+    return data;
+  } catch (error) {
+    console.error('GAS 特定予定削除失敗。ローカル側のみ更新されました:', error);
+    return periods;
+  }
 };
 
 /**
  * 曜日ごとの固定希望シフト情報を取得する
  */
 export const getShiftPreferencesApi = async (): Promise<ShiftPreference[]> => {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(getShiftPreferences()), 200);
-  });
+  const gasUrl = getGasApiUrl();
+
+  if (!gasUrl) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(getShiftPreferences()), 200);
+    });
+  }
+
+  try {
+    const response = await fetch(`${gasUrl}?action=getShiftPreferences`);
+    if (!response.ok) throw new Error('Network response was not ok');
+    const data = await response.json();
+    
+    const prefs = data as ShiftPreference[];
+    saveShiftPreferences(prefs);
+    return prefs;
+  } catch (error) {
+    console.warn('GAS 固定希望取得失敗。ローカルデータを使用します:', error);
+    return getShiftPreferences();
+  }
 };
 
 /**
  * 曜日ごとの固定希望シフト情報を保存する
  */
 export const saveShiftPreferencesApi = async (prefs: ShiftPreference[]): Promise<ShiftPreference[]> => {
+  const gasUrl = getGasApiUrl();
+
+  // 1. ローカル側を即座に更新
   saveShiftPreferences(prefs);
-  return prefs;
+
+  if (!gasUrl) {
+    return prefs;
+  }
+
+  try {
+    const query = new URLSearchParams({
+      action: 'saveShiftPreferences',
+      prefsJson: JSON.stringify(prefs)
+    });
+    const response = await fetch(`${gasUrl}?${query.toString()}`);
+    if (!response.ok) throw new Error('Network response was not ok');
+    const data = await response.json() as ShiftPreference[];
+    
+    saveShiftPreferences(data);
+    return data;
+  } catch (error) {
+    console.error('GAS 固定希望保存失敗。ローカル側のみ保存されました:', error);
+    return prefs;
+  }
 };
 
 /**

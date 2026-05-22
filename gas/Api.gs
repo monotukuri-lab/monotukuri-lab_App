@@ -105,6 +105,28 @@ function doGet(e) {
         var id = e.parameter.id;
         var updatedAnnsDel = deleteAnnouncement_(id);
         return jsonResponse_(updatedAnnsDel);
+
+      // --- 固定希望シフト ＆ 特定予定管理 ---
+      case 'getShiftPreferences':
+        var prefs = getShiftPreferences_();
+        return jsonResponse_(prefs);
+        
+      case 'saveShiftPreferences':
+        var updatedPrefs = saveShiftPreferences_(e.parameter.prefsJson);
+        return jsonResponse_(updatedPrefs);
+        
+      case 'getIrregularPeriods':
+        var periods = getIrregularPeriods_();
+        return jsonResponse_(periods);
+        
+      case 'saveIrregularPeriod':
+        var updatedPeriods = saveIrregularPeriod_(e.parameter.periodJson);
+        return jsonResponse_(updatedPeriods);
+        
+      case 'deleteIrregularPeriod':
+        var id = e.parameter.id;
+        var updatedPeriodsDel = deleteIrregularPeriod_(id);
+        return jsonResponse_(updatedPeriodsDel);
     }
   } catch (err) {
     result = { success: false, message: 'システムエラーが発生しました: ' + err.toString() };
@@ -512,7 +534,183 @@ function deleteAnnouncement_(id) {
 }
 
 // ============================================================================
-// 6. 共通内部ヘルパー関数
+// 6. 固定希望シフト ＆ 特定予定（テスト期間・祝日等）管理ロジック
+// ============================================================================
+
+/**
+ * 曜日ごとの固定希望シフト情報の取得（初期データ自動生成付き）
+ */
+function getShiftPreferences_() {
+  var sheet = getOrCreateSheet_('希望', ['曜日', 'スロット1', 'スロット2']);
+  var data = sheet.getDataRange().getValues();
+  
+  // 初期データがない場合は月〜金を空で作成
+  if (data.length === 1) {
+    var initialPrefs = [
+      [1, '', ''],
+      [2, '', ''],
+      [3, '', ''],
+      [4, '', ''],
+      [5, '', '']
+    ];
+    initialPrefs.forEach(function(row) {
+      sheet.appendRow(row);
+    });
+    data = sheet.getDataRange().getValues();
+  }
+  
+  var rows = data.slice(1);
+  var prefs = [];
+  
+  rows.forEach(function(row) {
+    prefs.push({
+      dayOfWeek: Number(row[0]),
+      slot1: row[1] ? String(row[1]) : '',
+      slot2: row[2] ? String(row[2]) : ''
+    });
+  });
+  
+  return prefs;
+}
+
+/**
+ * 曜日ごとの固定希望シフト情報の保存
+ */
+function saveShiftPreferences_(prefsJson) {
+  var sheet = getOrCreateSheet_('希望', ['曜日', 'スロット1', 'スロット2']);
+  var prefs = JSON.parse(prefsJson);
+  var data = sheet.getDataRange().getValues();
+  
+  prefs.forEach(function(pref) {
+    var targetRow = -1;
+    for (var i = 1; i < data.length; i++) {
+      if (Number(data[i][0]) === Number(pref.dayOfWeek)) {
+        targetRow = i + 1;
+        break;
+      }
+    }
+    if (targetRow !== -1) {
+      sheet.getRange(targetRow, 2).setValue(pref.slot1 || '');
+      sheet.getRange(targetRow, 3).setValue(pref.slot2 || '');
+    } else {
+      sheet.appendRow([pref.dayOfWeek, pref.slot1 || '', pref.slot2 || '']);
+    }
+  });
+  
+  return getShiftPreferences_();
+}
+
+/**
+ * 特定日程（イレギュラー期間）の取得（初期データ自動生成付き）
+ */
+function getIrregularPeriods_() {
+  var sheet = getOrCreateSheet_('特定予定', ['ID', '名称', '開始日', '終了日', '区分', '開館フラグ']);
+  var data = sheet.getDataRange().getValues();
+  
+  // 初期モックデータ作成
+  if (data.length === 1) {
+    var initialPeriods = [
+      ['irr_1', '中間試験 (休館)', '2026-05-25', '2026-05-28', 'exam', 'FALSE'],
+      ['irr_2', '開校記念日 (休館)', '2026-06-08', '2026-06-08', 'holiday', 'FALSE']
+    ];
+    initialPeriods.forEach(function(row) {
+      sheet.appendRow(row);
+    });
+    data = sheet.getDataRange().getValues();
+  }
+  
+  var rows = data.slice(1);
+  var periods = [];
+  
+  rows.forEach(function(row) {
+    if (!row[0]) return;
+    periods.push({
+      id: String(row[0]),
+      name: String(row[1]),
+      startDate: formatDateStr_(row[2]),
+      endDate: formatDateStr_(row[3]),
+      type: String(row[4]),
+      isOpen: String(row[5]).toUpperCase() === 'TRUE'
+    });
+  });
+  
+  return periods;
+}
+
+/**
+ * 特定日程（イレギュラー期間）の追加・更新
+ */
+function saveIrregularPeriod_(periodJson) {
+  var sheet = getOrCreateSheet_('特定予定', ['ID', '名称', '開始日', '終了日', '区分', '開館フラグ']);
+  var period = JSON.parse(periodJson);
+  var data = sheet.getDataRange().getValues();
+  
+  var targetRowIndex = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(period.id)) {
+      targetRowIndex = i + 1;
+      break;
+    }
+  }
+  
+  var rowData = [
+    period.id,
+    period.name,
+    period.startDate,
+    period.endDate,
+    period.type,
+    String(period.isOpen).toUpperCase()
+  ];
+  
+  if (targetRowIndex !== -1) {
+    sheet.getRange(targetRowIndex, 1, 1, 6).setValues([rowData]);
+  } else {
+    sheet.appendRow(rowData);
+  }
+  
+  // 休館日（isOpen === false）が新しく追加・更新された場合、その範囲内の既存確定シフトメンバーをアトミックに強制クリアする
+  if (period.isOpen === false) {
+    var shiftSheet = getOrCreateSheet_('シフト', ['日付', '時間帯', 'メンバー', '削除フラグ']);
+    var shiftData = shiftSheet.getDataRange().getValues();
+    var todayStr = formatDateStr_(new Date());
+    
+    for (var i = 1; i < shiftData.length; i++) {
+      var rowDate = formatDateStr_(shiftData[i][0]);
+      // 今日以降で、かつ休館期間に重なるシフト
+      if (rowDate >= todayStr && rowDate >= period.startDate && rowDate <= period.endDate) {
+        shiftSheet.getRange(i + 1, 3).setValue('');
+        shiftSheet.getRange(i + 1, 4).setValue('TRUE');
+      }
+    }
+  }
+  
+  return getIrregularPeriods_();
+}
+
+/**
+ * 特定日程（イレギュラー期間）の削除
+ */
+function deleteIrregularPeriod_(id) {
+  var sheet = getOrCreateSheet_('特定予定', ['ID', '名称', '開始日', '終了日', '区分', '開館フラグ']);
+  var data = sheet.getDataRange().getValues();
+  
+  var targetRowIndex = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      targetRowIndex = i + 1;
+      break;
+    }
+  }
+  
+  if (targetRowIndex !== -1) {
+    sheet.deleteRow(targetRowIndex);
+  }
+  
+  return getIrregularPeriods_();
+}
+
+// ============================================================================
+// 7. 共通内部ヘルパー関数
 // ============================================================================
 
 /**
