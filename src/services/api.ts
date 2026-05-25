@@ -23,37 +23,11 @@ function getLocalPrinters(): Printer[] {
     }
   }
   
-  // 初期モック状態：一部を使用中にする
-  const initialPrinters: Printer[] = DEFAULT_PRINTERS.map((name, index) => {
-    if (index === 0) {
-      return {
-        name,
-        status: {
-          status: 'busy',
-          startTime: '05/20 15:30',
-          grade: '専1',
-          department: '電気情報工学科',
-          studentId: 'TA12345',
-          userName: '高専 太郎',
-          rowIndex: 2
-        }
-      };
-    } else if (index === 4) {
-      return {
-        name,
-        status: {
-          status: 'busy',
-          startTime: '05/20 14:15',
-          grade: 'M4',
-          department: '機械工学科',
-          studentId: 'STUDENT54321',
-          userName: '舞鶴 二郎',
-          rowIndex: 3
-        }
-      };
-    }
-    return { name, status: { status: 'free' } };
-  });
+  // 初期状態：すべてのプリンターを空き（free）にします
+  const initialPrinters: Printer[] = DEFAULT_PRINTERS.map(name => ({
+    name,
+    status: { status: 'free' }
+  }));
   
   saveLocalPrinters(initialPrinters);
   return initialPrinters;
@@ -457,30 +431,8 @@ function getLocalAnnouncements(): Announcement[] {
     }
   }
   
-  const today = getLocalDateString();
-  const initialAnnouncements: Announcement[] = [
-    {
-      id: 'ann_1',
-      title: '電気配線工事に伴う臨時閉館のお知らせ',
-      content: '来週の月曜日（5月25日）は、ラボ内の電気設備点検および配線工事のため、終日臨時閉館といたします。これに伴い、当日のTAシフトもすべてお休みとなります。ご不便をおかけしますが、ご理解ご協力のほどよろしくお願いいたします。',
-      date: today,
-      important: true
-    },
-    {
-      id: 'ann_2',
-      title: '3Dプリンター Raise3D メンテナンス完了',
-      content: 'ノズルの目詰まりが発生していた「Raise3D Pro3 ①」のメンテナンスが完了し、本日より通常通り使用可能となりました。フィラメント交換 of Raise3D などをされる方は丁寧に行ってください。',
-      date: today,
-      important: false
-    },
-    {
-      id: 'ann_3',
-      title: '新しいTAマニュアルを公開しました',
-      content: '今年度版のTA業務マニュアル（PDF）をアップデートしました。共有フォルダに保存していますので、各自必ず一度目を通しておいてください。開館・閉館時の戸締まり手順が一部変更になっています。',
-      date: today,
-      important: false
-    }
-  ];
+  // 初期状態はお知らせなし（空配列）にします
+  const initialAnnouncements: Announcement[] = [];
   saveLocalAnnouncements(initialAnnouncements);
   return initialAnnouncements;
 }

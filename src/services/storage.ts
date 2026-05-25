@@ -71,25 +71,8 @@ export const saveShiftPreferences = (prefs: ShiftPreference[]): void => {
 export const getIrregularPeriods = (): IrregularPeriod[] => {
   const data = localStorage.getItem(KEYS.IRREGULAR_PERIODS);
   if (!data) {
-    // 舞鶴高専の中間テスト期間や祝日の初期モックデータ
-    const initialPeriods: IrregularPeriod[] = [
-      {
-        id: 'irr_1',
-        name: '中間試験 (休館)',
-        startDate: '2026-05-25',
-        endDate: '2026-05-28',
-        type: 'exam',
-        isOpen: false
-      },
-      {
-        id: 'irr_2',
-        name: '開校記念日 (休館)',
-        startDate: '2026-06-08',
-        endDate: '2026-06-08',
-        type: 'holiday',
-        isOpen: false
-      }
-    ];
+    // 初期状態は特定予定なし（空配列）にします
+    const initialPeriods: IrregularPeriod[] = [];
     saveIrregularPeriods(initialPeriods);
     return initialPeriods;
   }
@@ -160,7 +143,8 @@ export const saveGasApiUrl = (url: string): void => {
  * GAS連携のAPI URLを取得する
  */
 export const getGasApiUrl = (): string => {
-  return localStorage.getItem(KEYS.GAS_API_URL) || 'https://script.google.com/macros/s/AKfycbwBfje8HVXOuFiim5U2TZvgF0HqzZ998kRSjD7B7IZSsV-flGuFAXgWhRm8DcVr6Mhs/exec';
+  // セキュリティ対策：公開リポジトリでのURL漏洩を防ぐため、デフォルトは空（ローカルモックモード）にします
+  return localStorage.getItem(KEYS.GAS_API_URL) || '';
 };
 
 /**
@@ -195,7 +179,7 @@ function generateMockShifts(): Shift[] {
   const shifts: Shift[] = [];
   const today = new Date();
   
-  // 直近1ヶ月の平日に対して、適当にモックシフトを配置
+  // 初期状態は空のシフト枠（平日）のみを生成し、メンバーや削除設定は空にします
   for (let i = -10; i < 20; i++) {
     const d = new Date();
     d.setDate(today.getDate() + i);
@@ -205,25 +189,13 @@ function generateMockShifts(): Shift[] {
     if (dayOfWeek >= 1 && dayOfWeek <= 5) {
       const dateStr = getLocalDateString(d);
       
-      // テスト用に、一部の日付だけにメンバーを配置
-      let memberNames: string[] = [];
-      if (i === 0) {
-        memberNames = ['舞鶴 太郎 (TA)', '高専 花子 (TA)'];
-      } else if (i === 1) {
-        memberNames = ['教員 A (教員)'];
-      } else if (i === 2) {
-        memberNames = ['舞鶴 太郎 (TA)'];
-      } else if (i % 3 === 0) {
-        memberNames = ['高専 花子 (TA)'];
-      }
-
       shifts.push({
         id: `shift_${dateStr}`,
         date: dateStr,
         startTime: '16:15',
         endTime: '18:15',
-        memberNames: memberNames,
-        isDeleted: i === -2 // 過去の特定の日などを削除テスト用にする
+        memberNames: [],
+        isDeleted: false
       });
     }
   }

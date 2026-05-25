@@ -17,8 +17,7 @@
 // 1. 基本設定（既存の3Dプリンター管理原本と連動するためのID等）
 // ============================================================================
 
-// 原本スプレッドシートのID（舞鶴高専のものつくりラボ3Dプリンター管理スプレッドシート）
-var SPREADSHEET_ID = '1TJwyivkS81Yf6gR7vZbmxnH5D3y1mrf-kZq_n6tar5o';
+// セキュリティ対策：コンテナバインドスクリプトのため、SPREADSHEET_IDは動的に取得しハードコードを排除しました
 var SHEET_NAME = 'シート1'; // プリンターデータが保存されているシート名
 
 // プリンターのリスト
@@ -267,7 +266,8 @@ function endUsage(formObject) {
  * ID指定で原本スプレッドシートからシートを取得する
  */
 function getSheet_() {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  // コンテナバインドスクリプトとして、開いているスプレッドシートを動的に取得します
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.getSheets()[0];
@@ -467,19 +467,7 @@ function getAnnouncements_() {
   var sheet = getOrCreateSheet_('お知らせ', ['ID', 'タイトル', '本文', '日付', '重要フラグ']);
   var data = sheet.getDataRange().getValues();
   
-  if (data.length === 1) {
-    var todayStr = formatDateStr_(new Date());
-    var initialAnnouncements = [
-      ['ann_1', 'ものつくりラボアプリ公開', 'ものづくりラボの管理用アプリを公開しました。', todayStr, 'TRUE'],
-      ['ann_2', '3Dプリンター Raise3D メンテナンス完了', 'ノズルの目詰まりが発生していた「Raise3D Pro3 ①」のメンテナンスが完了し、本日より通常通り使用可能となりました。フィラメント交換の際は、手順書に従って丁寧に行ってください。', todayStr, 'FALSE'],
-    ];
-    
-    initialAnnouncements.forEach(function(row) {
-      sheet.appendRow(row);
-    });
-    data = sheet.getDataRange().getValues();
-  }
-  
+  // 初期データは作成せず、ヘッダーのみの空状態でスタートします
   var rows = data.slice(1);
   var announcements = [];
   
@@ -607,18 +595,7 @@ function getIrregularPeriods_() {
   var sheet = getOrCreateSheet_('特定予定', ['ID', '名称', '開始日', '終了日', '区分', '開館フラグ']);
   var data = sheet.getDataRange().getValues();
   
-  // 初期モックデータ作成
-  if (data.length === 1) {
-    var initialPeriods = [
-      ['irr_1', '中間試験 (休館)', '2026-05-25', '2026-05-28', 'exam', 'FALSE'],
-      ['irr_2', '開校記念日 (休館)', '2026-06-08', '2026-06-08', 'holiday', 'FALSE']
-    ];
-    initialPeriods.forEach(function(row) {
-      sheet.appendRow(row);
-    });
-    data = sheet.getDataRange().getValues();
-  }
-  
+  // 初期データは作成せず、ヘッダーのみの空状態でスタートします
   var rows = data.slice(1);
   var periods = [];
   
@@ -717,7 +694,8 @@ function deleteIrregularPeriod_(id) {
  * 指定名のシートを取得するか、なければ新規作成する
  */
 function getOrCreateSheet_(name, headers) {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  // コンテナバインドスクリプトとして、開いているスプレッドシートを動的に取得します
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(name);
   
   if (!sheet) {
