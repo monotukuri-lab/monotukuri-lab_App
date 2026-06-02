@@ -17,7 +17,11 @@
 // 1. 基本設定（既存の3Dプリンター管理原本と連動するためのID等）
 // ============================================================================
 
-// セキュリティ対策：コンテナバインドスクリプトのため、SPREADSHEET_IDは動的に取得しハードコードを排除しました
+// 【重要】スプレッドシートの拡張機能メニューからスクリプトを作成した場合は設定不要（自動連動）です。
+// もしGoogleドライブやApps Scriptダッシュボードから「独立したスクリプト（スタンドアロン）」として作成した場合は、
+// 連動させたいスプレッドシートのID（URLの /d/ と /edit の間の文字列）をここに設定してください。
+var SPREADSHEET_ID = '';
+
 var SHEET_NAME = 'シート1'; // プリンターデータが保存されているシート名
 
 // プリンターのリスト
@@ -270,8 +274,7 @@ function endUsage(formObject) {
  * ID指定で原本スプレッドシートからシートを取得する
  */
 function getSheet_() {
-  // コンテナバインドスクリプトとして、開いているスプレッドシートを動的に取得します
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getActiveSpreadsheet_();
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.getSheets()[0];
@@ -745,11 +748,30 @@ function deleteIrregularPeriod_(id) {
 // ============================================================================
 
 /**
+ * 連動するスプレッドシートを取得する（コンテナバインド・スタンドアロン両対応）
+ */
+function getActiveSpreadsheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss) {
+    return ss;
+  }
+  
+  if (SPREADSHEET_ID && SPREADSHEET_ID.trim() !== '') {
+    try {
+      return SpreadsheetApp.openById(SPREADSHEET_ID);
+    } catch (e) {
+      throw new Error('指定された SPREADSHEET_ID にアクセスできません。IDが正しいか、共有権限があるか確認してください。: ' + e.toString());
+    }
+  }
+  
+  throw new Error('スプレッドシートと連動していません。スプレッドシートのメニュー「拡張機能」＞「Apps Script」からスクリプトを作成し直すか、Api.gsの先頭にある SPREADSHEET_ID を設定してください。');
+}
+
+/**
  * 指定名のシートを取得するか、なければ新規作成する
  */
 function getOrCreateSheet_(name, headers) {
-  // コンテナバインドスクリプトとして、開いているスプレッドシートを動的に取得します
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getActiveSpreadsheet_();
   var sheet = ss.getSheetByName(name);
   
   if (!sheet) {
