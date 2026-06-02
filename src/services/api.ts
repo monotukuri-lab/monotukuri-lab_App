@@ -10,6 +10,15 @@ const DEFAULT_PRINTERS = [
   'Raise3D Pro3 ①'
 ];
 
+/**
+ * GAS APIのレスポンスがエラーオブジェクトかどうかを検証し、エラーの場合は例外をスローする
+ */
+const validateGasResponse = (data: any): void => {
+  if (data && typeof data === 'object' && 'success' in data && data.success === false) {
+    throw new Error(data.message || 'GAS APIシステムエラー');
+  }
+};
+
 // モック用の3Dプリンター稼働状況 (LocalStorageで永続化)
 const PRINTER_STORAGE_KEY = 'mtl_app_printers';
 
@@ -60,6 +69,11 @@ export const getPrinterStatus = async (): Promise<Printer[]> => {
     const response = await fetch(`${gasUrl}?action=getPrinterStatus`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    
+    if (typeof data !== 'object' || data === null) {
+      throw new Error('Response data is not an object');
+    }
     
     // GASから返ってくる {"Adventurer 4 ①": {status: "busy", ...}} のようなマップを配列に変換
     return DEFAULT_PRINTERS.map(name => ({
@@ -246,6 +260,10 @@ export const getShifts = async (): Promise<Shift[]> => {
     const response = await fetch(`${gasUrl}?action=getShifts`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    if (!Array.isArray(data)) {
+      throw new Error('Response is not an array');
+    }
     return data as Shift[];
   } catch (error) {
     console.warn('GAS シフト取得失敗。ローカルデータを使用します:', error);
@@ -294,6 +312,10 @@ export const joinShift = async (date: string, userName: string, userRole: string
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    if (!Array.isArray(data)) {
+      throw new Error('Response is not an array');
+    }
     return data as Shift[];
   } catch (error) {
     console.error('GAS シフト登録失敗:', error);
@@ -330,6 +352,10 @@ export const leaveShift = async (date: string, userName: string, userRole: strin
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    if (!Array.isArray(data)) {
+      throw new Error('Response is not an array');
+    }
     return data as Shift[];
   } catch (error) {
     console.error('GAS シフト脱退失敗:', error);
@@ -374,6 +400,10 @@ export const deleteShiftFrame = async (date: string): Promise<Shift[]> => {
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    if (!Array.isArray(data)) {
+      throw new Error('Response is not an array');
+    }
     return data as Shift[];
   } catch (error) {
     console.error('GAS シフト枠削除失敗:', error);
@@ -407,6 +437,10 @@ export const restoreShiftFrame = async (date: string): Promise<Shift[]> => {
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    if (!Array.isArray(data)) {
+      throw new Error('Response is not an array');
+    }
     return data as Shift[];
   } catch (error) {
     console.error('GAS シフト枠復元失敗:', error);
@@ -433,9 +467,13 @@ export const saveShiftsApi = async (shifts: Shift[]): Promise<Shift[]> => {
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
     
-    // GAS側の最新のシフトリストでローカルストレージも完全同期
     const syncedShifts = data as Shift[];
+    if (!Array.isArray(syncedShifts)) {
+      throw new Error('Response is not an array');
+    }
+    // GAS側の最新のシフトリストでローカルストレージも完全同期
     saveLocalShifts(syncedShifts);
     return syncedShifts;
   } catch (error) {
@@ -485,6 +523,10 @@ export const getAnnouncements = async (): Promise<Announcement[]> => {
     const response = await fetch(`${gasUrl}?action=getAnnouncements`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    if (!Array.isArray(data)) {
+      throw new Error('Response is not an array');
+    }
     return data as Announcement[];
   } catch (error) {
     console.warn('GAS お知らせ取得失敗。ローカルデータを使用します:', error);
@@ -523,6 +565,10 @@ export const addAnnouncement = async (title: string, content: string, important:
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    if (!Array.isArray(data)) {
+      throw new Error('Response is not an array');
+    }
     return data as Announcement[];
   } catch (error) {
     console.error('GAS お知らせ登録失敗:', error);
@@ -552,6 +598,10 @@ export const deleteAnnouncement = async (id: string): Promise<Announcement[]> =>
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
+    if (!Array.isArray(data)) {
+      throw new Error('Response is not an array');
+    }
     return data as Announcement[];
   } catch (error) {
     console.error('GAS お知らせ削除失敗:', error);
@@ -580,9 +630,13 @@ export const getIrregularPeriodsApi = async (): Promise<IrregularPeriod[]> => {
     const response = await fetch(`${gasUrl}?action=getIrregularPeriods`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
     
     // スプレッドシート側のデータでローカルストレージも同期
     const periods = data as IrregularPeriod[];
+    if (!Array.isArray(periods)) {
+      throw new Error('Response is not an array');
+    }
     saveIrregularPeriods(periods);
     return periods;
   } catch (error) {
@@ -639,11 +693,16 @@ export const saveIrregularPeriodApi = async (period: IrregularPeriod): Promise<I
     });
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
-    const data = await response.json() as IrregularPeriod[];
+    const data = await response.json();
+    validateGasResponse(data);
     
+    const periods = data as IrregularPeriod[];
+    if (!Array.isArray(periods)) {
+      throw new Error('Response is not an array');
+    }
     // GASから取得した最新の全体リストでローカルストレージを再上書き（完全同期）
-    saveIrregularPeriods(data);
-    return data;
+    saveIrregularPeriods(periods);
+    return periods;
   } catch (error) {
     console.error('GAS 特定予定保存失敗。ローカル側のみ保存されました:', error);
     return periods;
@@ -672,10 +731,15 @@ export const deleteIrregularPeriodApi = async (id: string): Promise<IrregularPer
     });
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
-    const data = await response.json() as IrregularPeriod[];
+    const data = await response.json();
+    validateGasResponse(data);
     
-    saveIrregularPeriods(data);
-    return data;
+    const periods = data as IrregularPeriod[];
+    if (!Array.isArray(periods)) {
+      throw new Error('Response is not an array');
+    }
+    saveIrregularPeriods(periods);
+    return periods;
   } catch (error) {
     console.error('GAS 特定予定削除失敗。ローカル側のみ更新されました:', error);
     return periods;
@@ -698,8 +762,12 @@ export const getShiftPreferencesApi = async (): Promise<ShiftPreference[]> => {
     const response = await fetch(`${gasUrl}?action=getShiftPreferences`);
     if (!response.ok) throw new Error('Network response was not ok');
     const data = await response.json();
+    validateGasResponse(data);
     
     const prefs = data as ShiftPreference[];
+    if (!Array.isArray(prefs)) {
+      throw new Error('Response is not an array');
+    }
     saveShiftPreferences(prefs);
     return prefs;
   } catch (error) {
@@ -728,10 +796,15 @@ export const saveShiftPreferencesApi = async (prefs: ShiftPreference[]): Promise
     });
     const response = await fetch(`${gasUrl}?${query.toString()}`);
     if (!response.ok) throw new Error('Network response was not ok');
-    const data = await response.json() as ShiftPreference[];
+    const data = await response.json();
+    validateGasResponse(data);
     
-    saveShiftPreferences(data);
-    return data;
+    const resPrefs = data as ShiftPreference[];
+    if (!Array.isArray(resPrefs)) {
+      throw new Error('Response is not an array');
+    }
+    saveShiftPreferences(resPrefs);
+    return resPrefs;
   } catch (error) {
     console.error('GAS 固定希望保存失敗。ローカル側のみ保存されました:', error);
     return prefs;
