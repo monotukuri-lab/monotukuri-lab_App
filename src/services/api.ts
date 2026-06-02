@@ -414,6 +414,37 @@ export const restoreShiftFrame = async (date: string): Promise<Shift[]> => {
   }
 };
 
+/**
+ * 【システム/管理者権限】シフト情報をスプレッドシート（GAS）に一括保存する
+ */
+export const saveShiftsApi = async (shifts: Shift[]): Promise<Shift[]> => {
+  const gasUrl = getGasApiUrl();
+
+  if (!gasUrl) {
+    saveLocalShifts(shifts);
+    return shifts;
+  }
+
+  try {
+    const query = new URLSearchParams({
+      action: 'saveShifts',
+      shiftsJson: JSON.stringify(shifts)
+    });
+    const response = await fetch(`${gasUrl}?${query.toString()}`);
+    if (!response.ok) throw new Error('Network response was not ok');
+    const data = await response.json();
+    
+    // GAS側の最新のシフトリストでローカルストレージも完全同期
+    const syncedShifts = data as Shift[];
+    saveLocalShifts(syncedShifts);
+    return syncedShifts;
+  } catch (error) {
+    console.error('GAS シフト一括保存失敗。ローカル側のみ保存されました:', error);
+    saveLocalShifts(shifts);
+    return shifts;
+  }
+};
+
 
 // ============================================================================
 // 3. お知らせ API (GAS本番同期対応)
@@ -818,8 +849,7 @@ export const autoGenerateShifts = async (forceOverwrite?: boolean): Promise<Shif
     });
   }
 
-  // ローカルストレージに保存
-  saveLocalShifts(updatedShifts);
-  return updatedShifts;
+  // GASに一括保存し、同期されたデータを返す
+  return await saveShiftsApi(updatedShifts);
 };
 

@@ -88,6 +88,10 @@ function doGet(e) {
         var updatedShiftsRes = restoreShiftFrame_(e.parameter.date);
         return jsonResponse_(updatedShiftsRes);
         
+      case 'saveShifts':
+        var updatedShiftsSave = saveShifts_(e.parameter.shiftsJson);
+        return jsonResponse_(updatedShiftsSave);
+
       // --- お知らせ機能 ---
       case 'getAnnouncements':
         var announcements = getAnnouncements_();
@@ -454,6 +458,56 @@ function restoreShiftFrame_(dateStr) {
   }
   
   return getShifts_();
+}
+
+/**
+ * シフト一覧の一括保存・更新
+ */
+function saveShifts_(shiftsJson) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    
+    var sheet = getOrCreateSheet_('シフト', ['日付', '時間帯', 'メンバー', '削除フラグ']);
+    var data = sheet.getDataRange().getValues();
+    var newShifts = JSON.parse(shiftsJson);
+    
+    // 日付と行インデックスのマップを作成 (1-based index)
+    var dateRowMap = {};
+    for (var i = 1; i < data.length; i++) {
+      var dStr = formatDateStr_(data[i][0]);
+      if (dStr) {
+        dateRowMap[dStr] = i + 1;
+      }
+    }
+    
+    newShifts.forEach(function(shift) {
+      var dateStr = shift.date;
+      var timeRange = shift.startTime + ' 〜 ' + shift.endTime;
+      var membersStr = (shift.memberNames || []).join(',');
+      var isDeletedStr = String(shift.isDeleted).toUpperCase();
+      
+      var targetRow = dateRowMap[dateStr];
+      if (targetRow) {
+        // 既存行を更新
+        sheet.getRange(targetRow, 2).setValue(timeRange);
+        sheet.getRange(targetRow, 3).setValue(membersStr);
+        sheet.getRange(targetRow, 4).setValue(isDeletedStr);
+      } else {
+        // 新規行を追加
+        sheet.appendRow([dateStr, timeRange, membersStr, isDeletedStr]);
+        // 重複防止のためマップも更新
+        var lastRow = sheet.getLastRow();
+        dateRowMap[dateStr] = lastRow;
+      }
+    });
+    
+    return getShifts_();
+  } catch (e) {
+    throw new Error('一括保存に失敗しました: ' + e.toString());
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ============================================================================
