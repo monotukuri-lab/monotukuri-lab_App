@@ -72,7 +72,7 @@ body {
   width: 100%;
   max-width: var(--app-max-width);
   height: 100vh;
-  min-height: -webkit-fill-available; /* iOS Safari用 */
+  height: 100dvh;
   background-color: var(--md-sys-color-background);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08), 0 8px 10px rgba(0, 0, 0, 0.06);
   display: flex;
@@ -88,6 +88,7 @@ body {
   }
   .app-container {
     height: 100vh;
+    height: 100dvh;
     box-shadow: none;
   }
 }
